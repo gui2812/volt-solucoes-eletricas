@@ -1,0 +1,1176 @@
+"use client";
+
+import { AppShell } from "@/components/layout/app-shell";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  BarChart3,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Download,
+  FileText,
+  Filter,
+  MapPin,
+  MessageCircle,
+  Plus,
+  Repeat,
+  Search,
+  ShieldAlert,
+  Users,
+  Wallet,
+  Wrench,
+  Zap
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+type Status =
+  | "Agendado"
+  | "Confirmado"
+  | "Em deslocamento"
+  | "Em atendimento"
+  | "Concluído"
+  | "Reagendado"
+  | "Cancelado"
+  | "Atrasado";
+
+type Priority = "Baixa" | "Média" | "Alta" | "Urgente";
+
+type Appointment = {
+  id: string;
+  title: string;
+  client: string;
+  phone: string;
+  address: string;
+  region: string;
+  type: string;
+  status: Status;
+  priority: Priority;
+  date: string;
+  start: string;
+  end: string;
+  technician: string;
+  os: string;
+  quote: string;
+  value: number;
+  costCenter: string;
+  recurrence: string;
+  materials: string[];
+  checklist: { item: string; done: boolean }[];
+  notes: string;
+};
+
+const today = "2026-06-25";
+
+const appointmentsSeed: Appointment[] = [
+  {
+    id: "AG-001",
+    title: "Avaliação de quadro elétrico",
+    client: "Condomínio JK 1455",
+    phone: "(11) 98878-3401",
+    address: "Vila Olímpia, São Paulo/SP",
+    region: "Zona Sul",
+    type: "Visita técnica",
+    status: "Confirmado",
+    priority: "Alta",
+    date: "2026-06-25",
+    start: "09:00",
+    end: "10:30",
+    technician: "Guilherme Santana",
+    os: "OS-1042",
+    quote: "COT-221",
+    value: 350,
+    costCenter: "Operação técnica",
+    recurrence: "Não repetir",
+    materials: ["Multímetro", "EPI", "Etiquetas"],
+    checklist: [
+      { item: "Confirmar com cliente", done: true },
+      { item: "Verificar endereço", done: true },
+      { item: "Separar EPI", done: true },
+      { item: "Registrar fotos", done: false }
+    ],
+    notes: "Verificar necessidade de DR/DPS e identificação dos circuitos."
+  },
+  {
+    id: "AG-002",
+    title: "Instalação de tomada dedicada para ar",
+    client: "Cliente residencial",
+    phone: "(11) 90000-0000",
+    address: "Mooca, São Paulo/SP",
+    region: "Zona Leste",
+    type: "Instalação elétrica",
+    status: "Agendado",
+    priority: "Média",
+    date: "2026-06-25",
+    start: "14:00",
+    end: "17:00",
+    technician: "Técnico 01",
+    os: "OS-1043",
+    quote: "COT-224",
+    value: 1250,
+    costCenter: "Instalações",
+    recurrence: "Não repetir",
+    materials: ["Cabo 4mm²", "Disjuntor 25A", "Tomada 20A", "Conduíte"],
+    checklist: [
+      { item: "Separar materiais", done: true },
+      { item: "Separar ferramentas", done: true },
+      { item: "Técnico saiu para atendimento", done: false },
+      { item: "Lançamento financeiro criado", done: false }
+    ],
+    notes: "Cliente solicitou passagem aparente limpa e acabamento."
+  },
+  {
+    id: "AG-003",
+    title: "Manutenção preventiva mensal",
+    client: "Loja comercial",
+    phone: "(11) 91111-1111",
+    address: "Centro, São Paulo/SP",
+    region: "Centro",
+    type: "Manutenção preventiva",
+    status: "Em atendimento",
+    priority: "Média",
+    date: "2026-06-25",
+    start: "11:00",
+    end: "12:30",
+    technician: "Técnico 02",
+    os: "OS-1038",
+    quote: "COT-198",
+    value: 780,
+    costCenter: "Preventiva",
+    recurrence: "Mensalmente",
+    materials: ["Checklist preventiva", "EPI", "Alicate amperímetro"],
+    checklist: [
+      { item: "Atendimento iniciado", done: true },
+      { item: "Fotos tiradas", done: false },
+      { item: "Cliente assinou", done: false },
+      { item: "Serviço concluído", done: false }
+    ],
+    notes: "Verificar iluminação, quadro e tomadas do balcão."
+  },
+  {
+    id: "AG-004",
+    title: "Retorno técnico - iluminação LED",
+    client: "Escritório corporativo",
+    phone: "(11) 92222-2222",
+    address: "Pinheiros, São Paulo/SP",
+    region: "Zona Oeste",
+    type: "Retorno",
+    status: "Concluído",
+    priority: "Baixa",
+    date: "2026-06-24",
+    start: "16:00",
+    end: "17:00",
+    technician: "Guilherme Santana",
+    os: "OS-1035",
+    quote: "COT-190",
+    value: 420,
+    costCenter: "Pós-venda",
+    recurrence: "Não repetir",
+    materials: ["Lâmpadas reserva", "Ferramentas"],
+    checklist: [
+      { item: "Confirmar com cliente", done: true },
+      { item: "Serviço concluído", done: true },
+      { item: "Lançamento financeiro criado", done: true },
+      { item: "OS atualizada", done: true }
+    ],
+    notes: "Ajuste final concluído."
+  },
+  {
+    id: "AG-005",
+    title: "Atendimento emergencial - disjuntor desarmando",
+    client: "Clínica",
+    phone: "(11) 93333-3333",
+    address: "Tatuapé, São Paulo/SP",
+    region: "Zona Leste",
+    type: "Emergência",
+    status: "Atrasado",
+    priority: "Urgente",
+    date: "2026-06-25",
+    start: "08:00",
+    end: "09:00",
+    technician: "Equipe terceirizada",
+    os: "OS-1044",
+    quote: "COT-226",
+    value: 980,
+    costCenter: "Emergência",
+    recurrence: "Não repetir",
+    materials: ["Multímetro", "Disjuntor reserva", "EPI"],
+    checklist: [
+      { item: "Confirmar com cliente", done: true },
+      { item: "Técnico saiu para atendimento", done: false },
+      { item: "Atendimento iniciado", done: false },
+      { item: "Registrar fotos", done: false }
+    ],
+    notes: "Prioridade máxima. Cliente com operação parada."
+  },
+  {
+    id: "AG-006",
+    title: "Orçamento presencial - automação de iluminação",
+    client: "Sala comercial",
+    phone: "(11) 94444-4444",
+    address: "Brooklin, São Paulo/SP",
+    region: "Zona Sul",
+    type: "Orçamento presencial",
+    status: "Agendado",
+    priority: "Alta",
+    date: "2026-06-27",
+    start: "10:00",
+    end: "11:00",
+    technician: "Guilherme Santana",
+    os: "Sem OS",
+    quote: "COT-230",
+    value: 0,
+    costCenter: "Comercial",
+    recurrence: "Não repetir",
+    materials: ["Trena", "Checklist automação"],
+    checklist: [
+      { item: "Confirmar com cliente", done: false },
+      { item: "Verificar endereço", done: true },
+      { item: "Separar ferramentas", done: false },
+      { item: "Criar cotação", done: false }
+    ],
+    notes: "Avaliar interruptores inteligentes, sensores e integração com Alexa/Google."
+  }
+];
+
+const technicians = [
+  { name: "Guilherme Santana", status: "Disponível", today: 3, week: 9, conclusion: 94, region: "São Paulo" },
+  { name: "Técnico 01", status: "Em deslocamento", today: 1, week: 6, conclusion: 88, region: "Zona Leste" },
+  { name: "Técnico 02", status: "Em atendimento", today: 1, week: 5, conclusion: 91, region: "Centro" },
+  { name: "Equipe terceirizada", status: "Ocupado", today: 1, week: 4, conclusion: 78, region: "Variável" }
+];
+
+const statusColumns: Status[] = [
+  "Agendado",
+  "Confirmado",
+  "Em deslocamento",
+  "Em atendimento",
+  "Concluído",
+  "Reagendado",
+  "Cancelado",
+  "Atrasado"
+];
+
+const types = [
+  "Todos",
+  "Visita técnica",
+  "Orçamento presencial",
+  "Instalação elétrica",
+  "Manutenção preventiva",
+  "Manutenção corretiva",
+  "Vistoria",
+  "Emergência",
+  "Retorno",
+  "Reunião",
+  "Entrega de material",
+  "Retirada de equipamento",
+  "Serviço interno"
+];
+
+const typeColors: Record<string, string> = {
+  "Visita técnica": "bg-blue-500/15 text-blue-300 border-blue-500/20",
+  "Orçamento presencial": "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25",
+  "Instalação elétrica": "bg-purple-500/15 text-purple-300 border-purple-500/20",
+  "Manutenção preventiva": "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
+  "Manutenção corretiva": "bg-orange-500/15 text-orange-300 border-orange-500/20",
+  Vistoria: "bg-cyan-500/15 text-cyan-300 border-cyan-500/20",
+  Emergência: "bg-red-500/15 text-red-300 border-red-500/20",
+  Retorno: "bg-white/10 text-zinc-300 border-white/10",
+  Reunião: "bg-pink-500/15 text-pink-300 border-pink-500/20",
+  "Entrega de material": "bg-lime-500/15 text-lime-300 border-lime-500/20",
+  "Retirada de equipamento": "bg-amber-500/15 text-amber-300 border-amber-500/20",
+  "Serviço interno": "bg-zinc-500/15 text-zinc-300 border-zinc-500/20"
+};
+
+const statusColors: Record<Status, string> = {
+  Agendado: "bg-white/10 text-zinc-300 border-white/10",
+  Confirmado: "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25",
+  "Em deslocamento": "bg-blue-500/15 text-blue-300 border-blue-500/20",
+  "Em atendimento": "bg-purple-500/15 text-purple-300 border-purple-500/20",
+  Concluído: "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
+  Reagendado: "bg-orange-500/15 text-orange-300 border-orange-500/20",
+  Cancelado: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
+  Atrasado: "bg-red-500/15 text-red-300 border-red-500/20"
+};
+
+const priorityColors: Record<Priority, string> = {
+  Baixa: "bg-white/10 text-zinc-300 border-white/10",
+  Média: "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25",
+  Alta: "bg-orange-500/15 text-orange-300 border-orange-500/20",
+  Urgente: "bg-red-500/15 text-red-300 border-red-500/20"
+};
+
+function currency(value: number) {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function Badge({ className, children }: { className: string; children: React.ReactNode }) {
+  return (
+    <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[.12em] ${className}`}>
+      {children}
+    </span>
+  );
+}
+
+function ProgressBar({ value }: { value: number }) {
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-white/10">
+      <div className="h-full rounded-full bg-volt-yellow shadow-[0_0_18px_rgba(255,203,47,.45)]" style={{ width: `${Math.min(value, 100)}%` }} />
+    </div>
+  );
+}
+
+export default function AgendaPage() {
+  const [appointments, setAppointments] = useState<Appointment[]>(appointmentsSeed);
+  const [activeTab, setActiveTab] = useState("Visão Geral");
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("Todos");
+  const [statusFilter, setStatusFilter] = useState("Todos");
+  const [technicianFilter, setTechnicianFilter] = useState("Todos");
+  const [selected, setSelected] = useState<Appointment | null>(appointmentsSeed[0]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState<EditableRecord | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [storageReady, setStorageReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("volt_agenda_premium_v1");
+      if (saved) {
+        const parsed = JSON.parse(saved) as Appointment[];
+        if (Array.isArray(parsed)) {
+          setAppointments(parsed);
+          setSelected(parsed[0] ?? null);
+        }
+      }
+    } catch {
+      setAppointments(appointmentsSeed);
+    } finally {
+      setStorageReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    localStorage.setItem("volt_agenda_premium_v1", JSON.stringify(appointments));
+  }, [storageReady, appointments]);
+
+  function getRecordKey(item: Appointment) {
+    return item.id;
+  }
+
+  function openEditor(item: Appointment) {
+    setEditingKey(getRecordKey(item));
+    setDraft({ ...item } as unknown as EditableRecord);
+    setEditOpen(true);
+  }
+
+  function saveEditor() {
+    if (!draft) return;
+    const next = draft as unknown as Appointment;
+    setAppointments((current) => current.map((item) => getRecordKey(item) === editingKey ? next : item));
+    setSelected(next);
+    setEditOpen(false);
+  }
+
+  function duplicateSelected() {
+    if (!selected) return;
+    const copy: Appointment = { ...selected, id: `AG-${String(appointments.length + 1).padStart(3, "0")}`, title: `${selected.title} cópia` };
+    setAppointments((current) => [copy, ...current]);
+    setSelected(copy);
+    setEditingKey(getRecordKey(copy));
+    setDraft({ ...copy } as unknown as EditableRecord);
+    setEditOpen(true);
+  }
+
+  function removeSelected() {
+    if (!selected) return;
+    if (!window.confirm("Excluir este registro?")) return;
+    setAppointments((current) => current.filter((item) => getRecordKey(item) !== getRecordKey(selected)));
+    setSelected(null);
+    setModalOpen(false);
+    setEditOpen(false);
+  }
+
+  const [monthOffset, setMonthOffset] = useState(0);
+
+  const filtered = useMemo(() => {
+    return appointments.filter((item) => {
+      const text = `${item.title} ${item.client} ${item.address} ${item.os} ${item.quote} ${item.type} ${item.technician}`.toLowerCase();
+      const matchesSearch = text.includes(search.toLowerCase());
+      const matchesType = typeFilter === "Todos" || item.type === typeFilter;
+      const matchesStatus = statusFilter === "Todos" || item.status === statusFilter;
+      const matchesTechnician = technicianFilter === "Todos" || item.technician === technicianFilter;
+      return matchesSearch && matchesType && matchesStatus && matchesTechnician;
+    });
+  }, [appointments, search, typeFilter, statusFilter, technicianFilter]);
+
+  const stats = useMemo(() => {
+    const total = filtered.length || 1;
+    const todayItems = filtered.filter((item) => item.date === today);
+    const concluded = filtered.filter((item) => item.status === "Concluído").length;
+    const late = filtered.filter((item) => item.status === "Atrasado").length;
+    const urgent = filtered.filter((item) => item.priority === "Urgente").length;
+    const osLinked = filtered.filter((item) => item.os !== "Sem OS").length;
+    const value = filtered.reduce((sum, item) => sum + item.value, 0);
+
+    return {
+      today: todayItems.length,
+      visits: filtered.filter((item) => item.type === "Visita técnica").length,
+      preventive: filtered.filter((item) => item.type === "Manutenção preventiva").length,
+      emergency: filtered.filter((item) => item.type === "Emergência").length,
+      open: filtered.filter((item) => !["Concluído", "Cancelado"].includes(item.status)).length,
+      concluded,
+      late,
+      urgent,
+      osLinked,
+      techniciansInField: new Set(filtered.map((item) => item.technician)).size,
+      conclusionRate: Math.round((concluded / total) * 100),
+      lateRate: Math.round((late / total) * 100),
+      value
+    };
+  }, [filtered]);
+
+  function moveStatus(id: string, status: Status) {
+    setAppointments((current) =>
+      current.map((item) => (item.id === id ? { ...item, status } : item))
+    );
+  }
+
+  function createMockAppointment() {
+    const next: Appointment = {
+      id: `AG-${String(appointments.length + 1).padStart(3, "0")}`,
+      title: "Novo compromisso técnico",
+      client: "Cliente novo",
+      phone: "(11) 99999-9999",
+      address: "São Paulo/SP",
+      region: "A definir",
+      type: "Visita técnica",
+      status: "Agendado",
+      priority: "Média",
+      date: "2026-06-28",
+      start: "09:00",
+      end: "10:00",
+      technician: "Guilherme Santana",
+      os: "Sem OS",
+      quote: "Sem cotação",
+      value: 0,
+      costCenter: "Operação técnica",
+      recurrence: "Não repetir",
+      materials: ["EPI", "Ferramentas básicas"],
+      checklist: [
+        { item: "Confirmar com cliente", done: false },
+        { item: "Verificar endereço", done: false },
+        { item: "Separar ferramentas", done: false },
+        { item: "Registrar fotos", done: false }
+      ],
+      notes: "Compromisso criado rapidamente. Editar detalhes antes do atendimento."
+    };
+
+    setAppointments((current) => [next, ...current]);
+    setSelected(next);
+    setEditingKey(getRecordKey(next));
+    setDraft({ ...next } as unknown as EditableRecord);
+    setModalOpen(false);
+    setEditOpen(true);
+  }
+
+  function exportCsv() {
+    const header = ["ID", "Data", "Hora", "Cliente", "Tipo", "Técnico", "Status", "Prioridade", "Valor"];
+    const rows = filtered.map((item) => [
+      item.id,
+      item.date,
+      `${item.start}-${item.end}`,
+      item.client,
+      item.type,
+      item.technician,
+      item.status,
+      item.priority,
+      item.value
+    ]);
+
+    const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "agenda-volt.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function generatePdf() {
+    window.print();
+  }
+
+  const tabs = ["Visão Geral", "Calendário", "Lista", "Kanban", "Técnicos", "Recorrências", "Alertas", "Relatórios"];
+
+  const calendarDays = Array.from({ length: 35 }, (_, index) => {
+    const day = index + 1;
+    const date = `2026-06-${String(day <= 30 ? day : day - 30).padStart(2, "0")}`;
+    const dayItems = filtered.filter((item) => item.date === date);
+    return { day, date, items: dayItems };
+  });
+
+  return (
+    <AppShell>
+      <div className="space-y-5">
+        <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#111821] via-[#080c11] to-black p-5 shadow-soft md:p-7">
+          <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-volt-yellow/20 blur-[130px]" />
+          <div className="relative z-10 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Agenda operacional</p>
+              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Organização de visitas, manutenções e equipe técnica.</h1>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
+                Controle compromissos, OS vinculadas, técnicos, recorrências, alertas, valores previstos e status de atendimento em uma tela profissional.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
+              <button onClick={createMockAppointment} className="btn-primary inline-flex items-center justify-center gap-2">
+                <Plus size={17} /> Novo compromisso
+              </button>
+              <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2">
+                <Download size={17} /> Exportar CSV
+              </button>
+              <button onClick={generatePdf} className="btn-ghost inline-flex items-center justify-center gap-2">
+                <FileText size={17} /> Relatório PDF
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-white/[.025] p-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_.8fr_.8fr_.8fr]">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
+              <Search size={17} className="text-volt-yellow" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar cliente, OS, endereço, serviço ou observação..."
+                className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-600"
+              />
+            </div>
+
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
+              {types.map((type) => <option key={type}>{type}</option>)}
+            </select>
+
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
+              {["Todos", ...statusColumns].map((status) => <option key={status}>{status}</option>)}
+            </select>
+
+            <select value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
+              {["Todos", ...technicians.map((item) => item.name)].map((tech) => <option key={tech}>{tech}</option>)}
+            </select>
+          </div>
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+          {[
+            ["Hoje", stats.today, "Compromissos de hoje", CalendarDays, "text-volt-yellow"],
+            ["Visitas", stats.visits, "Visitas técnicas", Users, "text-blue-300"],
+            ["Preventivas", stats.preventive, "Manutenções preventivas", Wrench, "text-volt-ok"],
+            ["Emergência", stats.emergency, "Atendimentos urgentes", Zap, "text-red-300"],
+            ["Abertos", stats.open, "Pendentes de conclusão", Clock3, "text-orange-300"],
+            ["Atrasados", stats.late, "Precisam de atenção", ShieldAlert, "text-red-300"],
+            ["OS vinculadas", stats.osLinked, "Integração com operação", FileText, "text-volt-yellow"],
+            ["Técnicos", stats.techniciansInField, "Equipe em agenda", Users, "text-blue-300"],
+            ["Conclusão", `${stats.conclusionRate}%`, "Taxa de conclusão", CheckCircle2, "text-volt-ok"],
+            ["Atraso", `${stats.lateRate}%`, "Taxa de atraso", AlertTriangle, "text-red-300"],
+            ["Valor previsto", currency(stats.value), "Agenda filtrada", Wallet, "text-volt-yellow"],
+            ["Urgentes", stats.urgent, "Prioridade máxima", Zap, "text-red-300"]
+          ].map(([title, value, text, Icon, color]) => {
+            const IconComp = Icon as typeof CalendarDays;
+            return (
+              <article key={String(title)} className="card-premium rounded-3xl p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <IconComp className={String(color)} size={22} />
+                  <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-black text-zinc-400">MÊS</span>
+                </div>
+                <p className={`text-2xl font-black ${String(color)}`}>{String(value)}</p>
+                <p className="mt-1 text-sm font-black">{String(title)}</p>
+                <p className="mt-1 text-xs leading-5 text-zinc-500">{String(text)}</p>
+              </article>
+            );
+          })}
+        </section>
+
+        <section className="volt-scroll flex gap-2 overflow-x-auto rounded-[2rem] border border-white/10 bg-white/[.025] p-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-black transition ${
+                activeTab === tab ? "bg-volt-yellow text-black shadow-glow" : "text-zinc-400 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </section>
+
+        {activeTab === "Visão Geral" && (
+          <section className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
+            <div className="card-premium rounded-[2rem] p-5 md:p-6">
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Próximos atendimentos</p>
+                  <h2 className="mt-1 text-2xl font-black">Agenda priorizada</h2>
+                </div>
+                <CalendarDays className="text-volt-yellow" size={28} />
+              </div>
+
+              <div className="space-y-3">
+                {filtered
+                  .sort((a, b) => (a.priority === "Urgente" ? -1 : b.priority === "Urgente" ? 1 : a.date.localeCompare(b.date)))
+                  .slice(0, 6)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setSelected(item);
+                        setModalOpen(true);
+                      }}
+                      className="w-full rounded-3xl border border-white/10 bg-white/[.035] p-4 text-left transition hover:border-volt-yellow/30"
+                    >
+                      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                        <div>
+                          <div className="mb-2 flex flex-wrap gap-2">
+                            <Badge className={statusColors[item.status]}>{item.status}</Badge>
+                            <Badge className={priorityColors[item.priority]}>{item.priority}</Badge>
+                            <Badge className={typeColors[item.type] ?? "bg-white/10 text-zinc-300 border-white/10"}>{item.type}</Badge>
+                          </div>
+                          <p className="font-black">{item.title}</p>
+                          <p className="mt-1 text-sm text-zinc-500">{item.client} • {item.technician}</p>
+                        </div>
+                        <div className="text-left md:text-right">
+                          <p className="font-black text-volt-yellow">{item.date} • {item.start}</p>
+                          <p className="mt-1 text-sm text-zinc-500">{currency(item.value)}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div className="card-premium rounded-[2rem] p-5 md:p-6">
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Técnicos</p>
+                <h2 className="mt-1 text-2xl font-black">Equipe em campo</h2>
+
+                <div className="mt-5 space-y-3">
+                  {technicians.map((tech) => (
+                    <div key={tech.name} className="rounded-3xl border border-white/10 bg-white/[.035] p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-black">{tech.name}</p>
+                          <p className="mt-1 text-xs text-zinc-500">{tech.status} • {tech.region}</p>
+                        </div>
+                        <p className="text-lg font-black text-volt-yellow">{tech.today}</p>
+                      </div>
+                      <div className="mt-3">
+                        <ProgressBar value={tech.conclusion} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card-premium rounded-[2rem] p-5 md:p-6">
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Alertas</p>
+                <div className="mt-5 space-y-3">
+                  {[
+                    "Compromisso atrasado com prioridade urgente.",
+                    "Técnico com agenda sobrecarregada hoje.",
+                    "Orçamento presencial sem OS vinculada.",
+                    "Cliente precisa confirmar atendimento antes da visita."
+                  ].map((alert) => (
+                    <div key={alert} className="flex gap-3 rounded-2xl border border-red-500/15 bg-red-500/5 p-3">
+                      <AlertTriangle className="shrink-0 text-red-300" size={18} />
+                      <p className="text-sm leading-6 text-zinc-300">{alert}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeTab === "Calendário" && (
+          <section className="card-premium rounded-[2rem] p-5 md:p-6">
+            <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Calendário visual</p>
+                <h2 className="mt-1 text-2xl font-black">Junho 2026</h2>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setMonthOffset(monthOffset - 1)} className="btn-ghost"><ChevronLeft size={17} /></button>
+                <button onClick={() => setMonthOffset(0)} className="btn-primary">Hoje</button>
+                <button onClick={() => setMonthOffset(monthOffset + 1)} className="btn-ghost"><ChevronRight size={17} /></button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 text-center text-xs font-black uppercase tracking-[.14em] text-zinc-500">
+              {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => <div key={day}>{day}</div>)}
+            </div>
+
+            <div className="mt-3 grid gap-2 md:grid-cols-7">
+              {calendarDays.map((day) => (
+                <div
+                  key={`${day.date}-${day.day}`}
+                  className={`min-h-36 rounded-3xl border p-3 ${
+                    day.date === today ? "border-volt-yellow/40 bg-volt-yellow/10" : "border-white/10 bg-white/[.025]"
+                  }`}
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="font-black">{day.day <= 30 ? day.day : day.day - 30}</p>
+                    {day.items.length > 2 && <span className="rounded-full bg-red-500/15 px-2 py-1 text-[10px] font-black text-red-300">CHEIO</span>}
+                  </div>
+
+                  <div className="space-y-1">
+                    {day.items.slice(0, 3).map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          setSelected(item);
+                          setModalOpen(true);
+                        }}
+                        className="block w-full truncate rounded-xl border border-white/10 bg-black/35 px-2 py-2 text-left text-xs font-bold text-zinc-300 hover:border-volt-yellow/30"
+                      >
+                        {item.start} • {item.client}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {activeTab === "Lista" && (
+          <section className="card-premium rounded-[2rem] p-5 md:p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Lista operacional</p>
+                <h2 className="mt-1 text-2xl font-black">Todos os compromissos</h2>
+              </div>
+              <Filter className="text-volt-yellow" size={26} />
+            </div>
+
+            <div className="volt-scroll overflow-x-auto">
+              <table className="w-full min-w-[1050px] border-separate border-spacing-y-2">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-[.16em] text-zinc-600">
+                    <th className="px-4 py-2">Data</th>
+                    <th className="px-4 py-2">Cliente</th>
+                    <th className="px-4 py-2">Tipo</th>
+                    <th className="px-4 py-2">Técnico</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">Prioridade</th>
+                    <th className="px-4 py-2">OS</th>
+                    <th className="px-4 py-2">Valor</th>
+                    <th className="px-4 py-2">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((item) => (
+                    <tr key={item.id} className="rounded-3xl bg-white/[.035] text-sm">
+                      <td className="rounded-l-2xl px-4 py-4 font-bold">{item.date}<br /><span className="text-xs text-zinc-500">{item.start}-{item.end}</span></td>
+                      <td className="px-4 py-4"><p className="font-black">{item.client}</p><p className="text-xs text-zinc-500">{item.address}</p></td>
+                      <td className="px-4 py-4"><Badge className={typeColors[item.type] ?? "bg-white/10 text-zinc-300 border-white/10"}>{item.type}</Badge></td>
+                      <td className="px-4 py-4">{item.technician}</td>
+                      <td className="px-4 py-4"><Badge className={statusColors[item.status]}>{item.status}</Badge></td>
+                      <td className="px-4 py-4"><Badge className={priorityColors[item.priority]}>{item.priority}</Badge></td>
+                      <td className="px-4 py-4 font-bold text-volt-yellow">{item.os}</td>
+                      <td className="px-4 py-4 font-black">{currency(item.value)}</td>
+                      <td className="rounded-r-2xl px-4 py-4">
+                        <button onClick={() => { setSelected(item); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Detalhes</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {activeTab === "Kanban" && (
+          <section className="volt-scroll overflow-x-auto">
+            <div className="grid min-w-[1280px] grid-cols-4 gap-4 xl:grid-cols-8">
+              {statusColumns.map((status) => (
+                <div key={status} className="rounded-[2rem] border border-white/10 bg-white/[.025] p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm font-black">{status}</p>
+                    <span className="rounded-full bg-white/10 px-2 py-1 text-xs font-black text-zinc-400">
+                      {filtered.filter((item) => item.status === status).length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {filtered.filter((item) => item.status === status).map((item) => (
+                      <div key={item.id} className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                        <Badge className={priorityColors[item.priority]}>{item.priority}</Badge>
+                        <p className="mt-3 font-black">{item.title}</p>
+                        <p className="mt-1 text-xs text-zinc-500">{item.client}</p>
+                        <p className="mt-2 text-xs text-zinc-500">{item.start} • {item.technician}</p>
+
+                        <div className="mt-4 grid gap-2">
+                          {statusColumns.filter((nextStatus) => nextStatus !== item.status).slice(0, 2).map((nextStatus) => (
+                            <button key={nextStatus} onClick={() => moveStatus(item.id, nextStatus)} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-zinc-400 hover:border-volt-yellow/30 hover:text-volt-yellow">
+                              Mover para {nextStatus}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {activeTab === "Técnicos" && (
+          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {technicians.map((tech) => (
+              <article key={tech.name} className="card-premium rounded-[2rem] p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div className="grid h-14 w-14 place-items-center rounded-2xl bg-volt-yellow text-black">
+                    <Users size={25} />
+                  </div>
+                  <Badge className="bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25">{tech.status}</Badge>
+                </div>
+                <h3 className="text-xl font-black">{tech.name}</h3>
+                <p className="mt-1 text-sm text-zinc-500">{tech.region}</p>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3">
+                    <p className="text-2xl font-black text-volt-yellow">{tech.today}</p>
+                    <p className="text-xs text-zinc-500">Hoje</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3">
+                    <p className="text-2xl font-black text-volt-yellow">{tech.week}</p>
+                    <p className="text-xs text-zinc-500">Semana</p>
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <div className="mb-2 flex justify-between text-xs font-bold text-zinc-500"><span>Conclusão</span><span>{tech.conclusion}%</span></div>
+                  <ProgressBar value={tech.conclusion} />
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+
+        {activeTab === "Recorrências" && (
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filtered.filter((item) => item.recurrence !== "Não repetir").concat(filtered.slice(0, 2)).map((item) => (
+              <article key={`${item.id}-rec`} className="card-premium rounded-[2rem] p-5">
+                <Repeat className="mb-5 text-volt-yellow" size={28} />
+                <h3 className="text-xl font-black">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">{item.client}</p>
+                <div className="mt-5 space-y-2 text-sm">
+                  <p className="flex justify-between"><span className="text-zinc-500">Frequência</span><strong>{item.recurrence === "Não repetir" ? "Mensalmente" : item.recurrence}</strong></p>
+                  <p className="flex justify-between"><span className="text-zinc-500">Próxima execução</span><strong>{item.date}</strong></p>
+                  <p className="flex justify-between"><span className="text-zinc-500">Responsável</span><strong>{item.technician}</strong></p>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+
+        {activeTab === "Alertas" && (
+          <section className="grid gap-4 md:grid-cols-2">
+            {[
+              "Compromisso atrasado sem conclusão.",
+              "Conflito de horário para o mesmo técnico.",
+              "Cliente sem telefone cadastrado.",
+              "OS vinculada vencida.",
+              "Cotação ainda não aprovada.",
+              "Cliente com pendência financeira.",
+              "Manutenção preventiva próxima do vencimento.",
+              "Atendimento urgente deve aparecer no topo."
+            ].map((alert, index) => (
+              <article key={alert} className="rounded-[2rem] border border-red-500/15 bg-red-500/5 p-5">
+                <div className="flex gap-4">
+                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-red-500/15 text-red-300">
+                    <AlertTriangle size={23} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-[.16em] text-red-300">Alerta {index + 1}</p>
+                    <p className="mt-2 text-sm leading-7 text-zinc-300">{alert}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+
+        {activeTab === "Relatórios" && (
+          <section className="grid gap-5 xl:grid-cols-[1fr_.8fr]">
+            <div className="card-premium rounded-[2rem] p-5 md:p-6">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Relatório executivo</p>
+              <h2 className="mt-2 text-3xl font-black">Agenda operacional da Volt</h2>
+              <p className="mt-3 text-sm leading-7 text-zinc-400">
+                Gere uma visão executiva com total de compromissos, técnicos, atrasos, valores previstos, tipos de atendimento e recomendações automáticas.
+              </p>
+
+              <div className="mt-6 grid gap-3 md:grid-cols-2">
+                {[
+                  "Agenda diária",
+                  "Agenda semanal",
+                  "Agenda mensal",
+                  "Atendimentos por técnico",
+                  "Atendimentos por cliente",
+                  "Manutenções preventivas",
+                  "Compromissos atrasados",
+                  "Relatório completo executivo"
+                ].map((item) => (
+                  <div key={item} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 font-bold text-zinc-300">
+                    {item}
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={generatePdf} className="btn-primary mt-6 inline-flex items-center gap-2">
+                <FileText size={17} /> Gerar relatório PDF
+              </button>
+            </div>
+
+            <div className="card-premium rounded-[2rem] p-5 md:p-6">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Gráficos</p>
+              <div className="mt-5 space-y-4">
+                {[
+                  ["Taxa de conclusão", stats.conclusionRate],
+                  ["Taxa de atraso", stats.lateRate],
+                  ["OS vinculadas", Math.round((stats.osLinked / (filtered.length || 1)) * 100)],
+                  ["Urgências", Math.round((stats.urgent / (filtered.length || 1)) * 100)]
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                    <div className="mb-2 flex justify-between text-sm font-black"><span>{String(label)}</span><span className="text-volt-yellow">{String(value)}%</span></div>
+                    <ProgressBar value={Number(value)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {modalOpen && selected && (
+          <div className="fixed inset-0 z-[90] grid place-items-center bg-black/75 p-4 backdrop-blur-sm">
+            <div className="volt-scroll max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+              <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
+                <div>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <Badge className={statusColors[selected.status]}>{selected.status}</Badge>
+                    <Badge className={priorityColors[selected.priority]}>{selected.priority}</Badge>
+                    <Badge className={typeColors[selected.type] ?? "bg-white/10 text-zinc-300 border-white/10"}>{selected.type}</Badge>
+                  </div>
+                  <h2 className="text-3xl font-black">{selected.title}</h2>
+                  <p className="mt-2 text-sm text-zinc-500">{selected.id} • {selected.client}</p>
+                </div>
+
+                <div className="flex gap-2">
+                  <a href={`https://wa.me/55${selected.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2">
+                    <MessageCircle size={17} /> WhatsApp
+                  </a>
+                  <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
+                  <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
+                  <button onClick={removeSelected} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
+                  <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_.85fr]">
+                <div className="space-y-4">
+                  {[
+                    ["Cliente", selected.client],
+                    ["Telefone", selected.phone],
+                    ["Endereço", selected.address],
+                    ["Data e horário", `${selected.date} • ${selected.start} às ${selected.end}`],
+                    ["Técnico", selected.technician],
+                    ["OS vinculada", selected.os],
+                    ["Cotação", selected.quote],
+                    ["Centro de custo", selected.costCenter],
+                    ["Valor previsto", currency(selected.value)],
+                    ["Recorrência", selected.recurrence]
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                      <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{label}</p>
+                      <p className="mt-1 font-bold">{value}</p>
+                    </div>
+                  ))}
+
+                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                    <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Observações</p>
+                    <p className="mt-2 text-sm leading-7 text-zinc-300">{selected.notes}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                    <p className="mb-4 text-sm font-black text-volt-yellow">Checklist do atendimento</p>
+                    <div className="space-y-2">
+                      {selected.checklist.map((item) => (
+                        <div key={item.item} className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                          <div className={`grid h-6 w-6 place-items-center rounded-full ${item.done ? "bg-volt-ok text-black" : "bg-white/10 text-zinc-500"}`}>
+                            {item.done && <CheckCircle2 size={15} />}
+                          </div>
+                          <span className="text-sm font-bold text-zinc-300">{item.item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                    <p className="mb-4 text-sm font-black text-volt-yellow">Materiais e ferramentas</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selected.materials.map((material) => (
+                        <span key={material} className="rounded-full border border-white/10 bg-black/30 px-3 py-2 text-xs font-bold text-zinc-300">
+                          {material}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
+                    <p className="text-sm font-black text-volt-yellow">Integrações futuras</p>
+                    <p className="mt-2 text-sm leading-7 text-zinc-300">
+                      Estrutura pronta para conectar clientes, OS, cotações, financeiro, recorrências, anexos, assinatura do cliente e Supabase.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editOpen && draft && (
+          <EditableRecordModal
+            title={editingKey ? "Editar registro" : "Novo registro"}
+            draft={draft}
+            setDraft={setDraft}
+            onSave={saveEditor}
+            onCancel={() => setEditOpen(false)}
+          />
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+
+type EditableRecord = Record<string, unknown>;
+
+function EditableRecordModal({
+  title,
+  draft,
+  setDraft,
+  onSave,
+  onCancel
+}: {
+  title: string;
+  draft: EditableRecord;
+  setDraft: (value: EditableRecord) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function fieldValue(value: unknown) {
+    if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+      return JSON.stringify(value, null, 2);
+    }
+
+    return String(value ?? "");
+  }
+
+  function parseValue(oldValue: unknown, raw: string) {
+    if (typeof oldValue === "number") return Number(raw.replace(",", ".")) || 0;
+    if (typeof oldValue === "boolean") return raw === "true";
+
+    if (Array.isArray(oldValue) || (typeof oldValue === "object" && oldValue !== null)) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return raw.split(",").map((item) => item.trim()).filter(Boolean);
+      }
+    }
+
+    return raw;
+  }
+
+  function updateField(key: string, raw: string) {
+    setDraft({
+      ...draft,
+      [key]: parseValue(draft[key], raw)
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+        <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Edição funcional</p>
+            <h2 className="mt-2 text-3xl font-black">{title}</h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-500">
+              Edite os dados, salve e a alteração ficará gravada no navegador.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+            <button onClick={onSave} className="btn-primary">Salvar alterações</button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          {Object.entries(draft).map(([key, value]) => {
+            const isLong = Array.isArray(value) || (typeof value === "object" && value !== null) || key.toLowerCase().includes("notes") || key.toLowerCase().includes("observ");
+
+            return (
+              <div key={key} className={`rounded-2xl border border-white/10 bg-white/[.035] p-4 ${isLong ? "md:col-span-2" : ""}`}>
+                <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{key}</label>
+
+                {typeof value === "boolean" ? (
+                  <select
+                    value={value ? "true" : "false"}
+                    onChange={(event) => updateField(key, event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  >
+                    <option value="true">Sim</option>
+                    <option value="false">Não</option>
+                  </select>
+                ) : isLong ? (
+                  <textarea
+                    value={fieldValue(value)}
+                    onChange={(event) => updateField(key, event.target.value)}
+                    rows={5}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  />
+                ) : (
+                  <input
+                    value={fieldValue(value)}
+                    onChange={(event) => updateField(key, event.target.value)}
+                    type={typeof value === "number" ? "number" : "text"}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2 border-t border-white/10 pt-5">
+          <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+          <button onClick={onSave} className="btn-primary">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

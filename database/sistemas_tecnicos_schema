@@ -1,0 +1,120 @@
+-- Volt Soluções Elétricas — Sistemas Técnicos
+-- Estrutura preparada para Supabase/PostgreSQL.
+-- Execute somente quando o projeto for conectado ao banco de dados real.
+
+create table if not exists sistemas_projetos (
+  id uuid primary key default gen_random_uuid(),
+  cliente_id uuid null,
+  nome text not null,
+  tipo text not null check (tipo in ('dimensionamento', 'qdc')),
+  status text not null default 'rascunho',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists dimensionamentos (
+  id uuid primary key default gen_random_uuid(),
+  projeto_id uuid references sistemas_projetos(id) on delete cascade,
+  cliente text,
+  nome_projeto text,
+  endereco text,
+  tipo_instalacao text,
+  sistema_eletrico text,
+  tensao text,
+  responsavel_tecnico text,
+  observacoes text,
+  status_geral text,
+  created_at timestamptz default now()
+);
+
+create table if not exists dimensionamento_circuitos (
+  id uuid primary key default gen_random_uuid(),
+  dimensionamento_id uuid references dimensionamentos(id) on delete cascade,
+  nome text not null,
+  tipo text,
+  potencia_watts numeric,
+  quantidade numeric,
+  tensao numeric,
+  fator_potencia numeric,
+  comprimento_metros numeric,
+  metodo_instalacao text,
+  temperatura_ambiente numeric,
+  condutores_agrupados numeric,
+  material_cabo text,
+  isolacao text
+);
+
+create table if not exists dimensionamento_resultados (
+  id uuid primary key default gen_random_uuid(),
+  circuito_id uuid references dimensionamento_circuitos(id) on delete cascade,
+  corrente_calculada numeric,
+  bitola_recomendada numeric,
+  disjuntor_recomendado numeric,
+  dr_recomendado text,
+  dps_recomendado text,
+  queda_tensao_percent numeric,
+  status text,
+  avisos jsonb default '[]'::jsonb
+);
+
+create table if not exists qdc_projetos (
+  id uuid primary key default gen_random_uuid(),
+  projeto_id uuid references sistemas_projetos(id) on delete cascade,
+  nome text not null,
+  cliente text,
+  local_instalacao text,
+  tipo_quadro text,
+  quantidade_modulos integer,
+  sistema_eletrico text,
+  tensao text,
+  observacoes text,
+  status_geral text,
+  created_at timestamptz default now()
+);
+
+create table if not exists qdc_componentes (
+  id uuid primary key default gen_random_uuid(),
+  qdc_id uuid references qdc_projetos(id) on delete cascade,
+  tipo text,
+  nome text,
+  etiqueta text,
+  modulos integer,
+  corrente_nominal text,
+  posicao integer
+);
+
+create table if not exists qdc_ligacoes (
+  id uuid primary key default gen_random_uuid(),
+  qdc_id uuid references qdc_projetos(id) on delete cascade,
+  componente_origem uuid references qdc_componentes(id) on delete cascade,
+  componente_destino uuid references qdc_componentes(id) on delete cascade,
+  tipo_fio text,
+  bitola text
+);
+
+create table if not exists qdc_validacoes (
+  id uuid primary key default gen_random_uuid(),
+  qdc_id uuid references qdc_projetos(id) on delete cascade,
+  titulo text,
+  descricao text,
+  status text
+);
+
+create table if not exists materiais_gerados (
+  id uuid primary key default gen_random_uuid(),
+  projeto_id uuid references sistemas_projetos(id) on delete cascade,
+  material text,
+  especificacao text,
+  quantidade numeric,
+  unidade text,
+  observacao text
+);
+
+create table if not exists memoriais_pdf (
+  id uuid primary key default gen_random_uuid(),
+  projeto_id uuid references sistemas_projetos(id) on delete cascade,
+  nome_arquivo text,
+  url_pdf text,
+  gerado_por text,
+  created_at timestamptz default now()
+);

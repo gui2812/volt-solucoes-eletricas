@@ -1,0 +1,1094 @@
+"use client";
+
+import { AppShell } from "@/components/layout/app-shell";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  BarChart3,
+  CheckCircle2,
+  CreditCard,
+  Download,
+  FileText,
+  Filter,
+  Gauge,
+  LineChart,
+  PieChart,
+  Plus,
+  Receipt,
+  Search,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  Zap
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+type TransactionType = "Receita" | "Despesa" | "Conta a pagar" | "Conta a receber";
+type TransactionStatus = "Aberto" | "Pago" | "Recebido" | "Vencido" | "Cancelado";
+
+type Transaction = {
+  id: string;
+  type: TransactionType;
+  title: string;
+  clientSupplier: string;
+  costCenter: string;
+  category: string;
+  budgeted: number;
+  actual: number;
+  competenceDate: string;
+  dueDate: string;
+  paymentDate: string;
+  status: TransactionStatus;
+  paymentMethod: string;
+  serviceOrder: string;
+  quote: string;
+  recurrence: string;
+  responsible: string;
+  notes: string;
+};
+
+type CostCenter = {
+  code: string;
+  name: string;
+  type: string;
+  responsible: string;
+  monthlyBudget: number;
+  annualBudget: number;
+  monthlyActual: number;
+  annualActual: number;
+  notes: string;
+};
+
+const transactionsSeed: Transaction[] = [
+  {
+    id: "FIN-001",
+    type: "Receita",
+    title: "OS-1042 Organização de QDC",
+    clientSupplier: "Condomínio JK 1455",
+    costCenter: "Serviços técnicos",
+    category: "Quadros/QDC",
+    budgeted: 1850,
+    actual: 1850,
+    competenceDate: "2026-06-25",
+    dueDate: "2026-06-28",
+    paymentDate: "2026-06-25",
+    status: "Recebido",
+    paymentMethod: "Pix",
+    serviceOrder: "OS-1042",
+    quote: "COT-221",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: "Receita vinculada à OS de organização de quadro elétrico."
+  },
+  {
+    id: "FIN-002",
+    type: "Receita",
+    title: "Circuito dedicado micro-ondas",
+    clientSupplier: "Cliente residencial",
+    costCenter: "Serviços técnicos",
+    category: "Circuito dedicado",
+    budgeted: 420,
+    actual: 0,
+    competenceDate: "2026-06-26",
+    dueDate: "2026-06-29",
+    paymentDate: "",
+    status: "Aberto",
+    paymentMethod: "Pix",
+    serviceOrder: "OS-1043",
+    quote: "COT-224",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: "Aguardando execução e recebimento."
+  },
+  {
+    id: "FIN-003",
+    type: "Despesa",
+    title: "Compra de disjuntores e barramentos",
+    clientSupplier: "Fornecedor elétrico",
+    costCenter: "Materiais elétricos",
+    category: "Materiais",
+    budgeted: 900,
+    actual: 1040,
+    competenceDate: "2026-06-20",
+    dueDate: "2026-06-20",
+    paymentDate: "2026-06-20",
+    status: "Pago",
+    paymentMethod: "Cartão",
+    serviceOrder: "OS-1042",
+    quote: "Sem cotação",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: "Compra acima do previsto por inclusão de barramento extra."
+  },
+  {
+    id: "FIN-004",
+    type: "Conta a pagar",
+    title: "Combustível e deslocamento",
+    clientSupplier: "Posto",
+    costCenter: "Transporte",
+    category: "Combustível",
+    budgeted: 450,
+    actual: 380,
+    competenceDate: "2026-06-22",
+    dueDate: "2026-06-30",
+    paymentDate: "",
+    status: "Aberto",
+    paymentMethod: "Cartão",
+    serviceOrder: "Operação",
+    quote: "Sem cotação",
+    recurrence: "Mensal",
+    responsible: "Guilherme Santana",
+    notes: "Custos de deslocamento de atendimentos."
+  },
+  {
+    id: "FIN-005",
+    type: "Conta a receber",
+    title: "Automação iluminação sala comercial",
+    clientSupplier: "Sala Comercial Vikings",
+    costCenter: "Comercial",
+    category: "Automação",
+    budgeted: 1600,
+    actual: 0,
+    competenceDate: "2026-06-28",
+    dueDate: "2026-07-05",
+    paymentDate: "",
+    status: "Aberto",
+    paymentMethod: "Transferência",
+    serviceOrder: "OS-1045",
+    quote: "COT-230",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: "Receita prevista para automação residencial/comercial."
+  },
+  {
+    id: "FIN-006",
+    type: "Despesa",
+    title: "Ferramentas e EPI",
+    clientSupplier: "Fornecedor ferramentas",
+    costCenter: "Ferramentas e EPI",
+    category: "Ferramentas",
+    budgeted: 700,
+    actual: 820,
+    competenceDate: "2026-06-12",
+    dueDate: "2026-06-12",
+    paymentDate: "2026-06-12",
+    status: "Pago",
+    paymentMethod: "Pix",
+    serviceOrder: "Estoque",
+    quote: "Sem cotação",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: "Reposição para equipe técnica."
+  },
+  {
+    id: "FIN-007",
+    type: "Receita",
+    title: "Manutenção iluminação LED",
+    clientSupplier: "Escritório corporativo",
+    costCenter: "Serviços técnicos",
+    category: "Iluminação",
+    budgeted: 690,
+    actual: 690,
+    competenceDate: "2026-06-24",
+    dueDate: "2026-06-24",
+    paymentDate: "2026-06-24",
+    status: "Recebido",
+    paymentMethod: "Pix",
+    serviceOrder: "OS-1035",
+    quote: "COT-190",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: "Serviço finalizado e recebido."
+  },
+  {
+    id: "FIN-008",
+    type: "Conta a receber",
+    title: "Adequação DR/DPS residencial",
+    clientSupplier: "Cliente residencial",
+    costCenter: "Serviços técnicos",
+    category: "Proteção elétrica",
+    budgeted: 2300,
+    actual: 0,
+    competenceDate: "2026-06-18",
+    dueDate: "2026-06-21",
+    paymentDate: "",
+    status: "Vencido",
+    paymentMethod: "Boleto",
+    serviceOrder: "OS-1039",
+    quote: "COT-210",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: "Cliente com vencimento em aberto."
+  }
+];
+
+const costCentersSeed: CostCenter[] = [
+  { code: "CC-001", name: "Materiais elétricos", type: "Operacional", responsible: "Guilherme", monthlyBudget: 3200, annualBudget: 38400, monthlyActual: 2860, annualActual: 14900, notes: "Cabos, disjuntores, tomadas, DR, DPS e quadros." },
+  { code: "CC-002", name: "Ferramentas e EPI", type: "Operacional", responsible: "Guilherme", monthlyBudget: 900, annualBudget: 10800, monthlyActual: 820, annualActual: 4300, notes: "Ferramentas, EPIs e reposição técnica." },
+  { code: "CC-003", name: "Transporte", type: "Operacional", responsible: "Guilherme", monthlyBudget: 750, annualBudget: 9000, monthlyActual: 380, annualActual: 2900, notes: "Combustível, estacionamento e deslocamento." },
+  { code: "CC-004", name: "Marketing", type: "Comercial", responsible: "Guilherme", monthlyBudget: 600, annualBudget: 7200, monthlyActual: 280, annualActual: 1600, notes: "Site, tráfego, identidade e divulgação." },
+  { code: "CC-005", name: "Administrativo", type: "Gestão", responsible: "Guilherme", monthlyBudget: 500, annualBudget: 6000, monthlyActual: 420, annualActual: 2100, notes: "Sistemas, documentos e operação interna." }
+];
+
+const monthlyData = [
+  { month: "Jan", receita: 5200, despesa: 2300, lucro: 2900, orcado: 6500 },
+  { month: "Fev", receita: 7800, despesa: 3100, lucro: 4700, orcado: 8000 },
+  { month: "Mar", receita: 9600, despesa: 4200, lucro: 5400, orcado: 9800 },
+  { month: "Abr", receita: 13200, despesa: 5100, lucro: 8100, orcado: 12500 },
+  { month: "Mai", receita: 15800, despesa: 6300, lucro: 9500, orcado: 16000 },
+  { month: "Jun", receita: 18450, despesa: 7240, lucro: 11210, orcado: 25000 }
+];
+
+const goals = [
+  { title: "Meta mensal de faturamento", target: 25000, actual: 18450 },
+  { title: "Meta mensal de lucro", target: 14000, actual: 11210 },
+  { title: "Meta anual de faturamento", target: 220000, actual: 70050 },
+  { title: "Limite mensal de despesas", target: 9000, actual: 7240 }
+];
+
+const tabs = [
+  "Visão Geral",
+  "Lançamentos",
+  "Contas a Pagar",
+  "Contas a Receber",
+  "Centro de Custo",
+  "Orçado x Realizado",
+  "Metas",
+  "Fluxo de Caixa",
+  "Relatórios"
+];
+
+const statusColors: Record<TransactionStatus, string> = {
+  Aberto: "bg-white/10 text-zinc-300 border-white/10",
+  Pago: "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
+  Recebido: "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
+  Vencido: "bg-red-500/15 text-red-300 border-red-500/20",
+  Cancelado: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20"
+};
+
+const typeColors: Record<TransactionType, string> = {
+  Receita: "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
+  Despesa: "bg-red-500/15 text-red-300 border-red-500/20",
+  "Conta a pagar": "bg-orange-500/15 text-orange-300 border-orange-500/20",
+  "Conta a receber": "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25"
+};
+
+function currency(value: number) {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function percent(value: number) {
+  return `${Math.round(value)}%`;
+}
+
+function Badge({ className, children }: { className: string; children: React.ReactNode }) {
+  return <span className={`rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[.12em] ${className}`}>{children}</span>;
+}
+
+function ProgressBar({ value, danger = false }: { value: number; danger?: boolean }) {
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-white/10">
+      <div className={`h-full rounded-full ${danger ? "bg-red-400" : "bg-volt-yellow"} shadow-[0_0_18px_rgba(255,203,47,.35)]`} style={{ width: `${Math.min(value, 100)}%` }} />
+    </div>
+  );
+}
+
+function ChartCard({ title, subtitle, icon, children }: { title: string; subtitle: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="card-premium rounded-[2rem] p-5 md:p-6">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Análise</p>
+          <h2 className="mt-1 text-2xl font-black">{title}</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">{subtitle}</p>
+        </div>
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-volt-yellow/25 bg-volt-yellow/10 text-volt-yellow">{icon}</div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function LineFinanceChart() {
+  const width = 760;
+  const height = 270;
+  const pad = 34;
+  const max = Math.max(...monthlyData.flatMap((item) => [item.receita, item.despesa, item.lucro]));
+
+  function points(key: "receita" | "despesa" | "lucro") {
+    return monthlyData
+      .map((item, index) => {
+        const x = pad + (index * (width - pad * 2)) / (monthlyData.length - 1);
+        const y = height - pad - (item[key] / max) * (height - pad * 2);
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/35 p-4">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[270px] w-full">
+        {[0, 1, 2, 3].map((line) => {
+          const y = pad + (line * (height - pad * 2)) / 3;
+          return <line key={line} x1={pad} x2={width - pad} y1={y} y2={y} stroke="rgba(255,255,255,.08)" />;
+        })}
+
+        <polyline fill="none" stroke="#ffcb2f" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" points={points("receita")} />
+        <polyline fill="none" stroke="#ef4444" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={points("despesa")} />
+        <polyline fill="none" stroke="#22c55e" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={points("lucro")} />
+
+        {monthlyData.map((item, index) => {
+          const x = pad + (index * (width - pad * 2)) / (monthlyData.length - 1);
+          return <text key={item.month} x={x} y={height - 6} textAnchor="middle" fill="rgba(255,255,255,.55)" fontSize="13" fontWeight="700">{item.month}</text>;
+        })}
+      </svg>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-zinc-400">
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-volt-yellow" /> Receita</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-red-500" /> Despesa</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-volt-ok" /> Lucro</span>
+      </div>
+    </div>
+  );
+}
+
+function BudgetColumnChart() {
+  const max = Math.max(...monthlyData.flatMap((item) => [item.orcado, item.receita]));
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+      <div className="flex h-[260px] items-end gap-3">
+        {monthlyData.map((item) => (
+          <div key={item.month} className="flex flex-1 flex-col items-center gap-3">
+            <div className="flex h-52 w-full items-end justify-center gap-2">
+              <div className="w-5 rounded-t-full bg-white/25" style={{ height: `${(item.orcado / max) * 100}%` }} />
+              <div className="w-5 rounded-t-full bg-volt-yellow" style={{ height: `${(item.receita / max) * 100}%` }} />
+            </div>
+            <span className="text-xs font-bold text-zinc-500">{item.month}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-3 text-xs font-bold text-zinc-400">
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-white/25" /> Orçado</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-volt-yellow" /> Realizado</span>
+      </div>
+    </div>
+  );
+}
+
+function DonutChart() {
+  const data = [
+    { label: "Materiais", value: 36, color: "#ffcb2f" },
+    { label: "Ferramentas", value: 18, color: "#22c55e" },
+    { label: "Transporte", value: 14, color: "#38bdf8" },
+    { label: "Marketing", value: 10, color: "#a78bfa" },
+    { label: "Administrativo", value: 8, color: "#f97316" },
+    { label: "Outros", value: 14, color: "#71717a" }
+  ];
+
+  let start = 0;
+  const conic = `conic-gradient(${data
+    .map((item) => {
+      const end = start + item.value;
+      const part = `${item.color} ${start}% ${end}%`;
+      start = end;
+      return part;
+    })
+    .join(", ")})`;
+
+  return (
+    <div className="grid gap-5 md:grid-cols-[220px_1fr] md:items-center">
+      <div className="mx-auto grid h-56 w-56 place-items-center rounded-full border border-white/10 bg-black/30 p-4">
+        <div className="grid h-48 w-48 place-items-center rounded-full" style={{ background: conic }}>
+          <div className="grid h-28 w-28 place-items-center rounded-full border border-white/10 bg-[#090d12] text-center">
+            <div>
+              <p className="text-3xl font-black text-volt-yellow">100%</p>
+              <p className="text-xs font-bold text-zinc-500">despesas</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {data.map((item) => (
+          <div key={item.label} className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/35 p-3">
+            <div className="flex items-center gap-3">
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+              <span className="text-sm font-bold text-zinc-300">{item.label}</span>
+            </div>
+            <span className="font-black">{item.value}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CashFlowWaterfall() {
+  const data = [
+    { label: "Saldo inicial", value: 4200, type: "base" },
+    { label: "Receitas", value: 18450, type: "positive" },
+    { label: "Despesas", value: -7240, type: "negative" },
+    { label: "Impostos", value: -1380, type: "negative" },
+    { label: "Saldo final", value: 14030, type: "base" }
+  ];
+
+  const max = Math.max(...data.map((item) => Math.abs(item.value)));
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+      <div className="grid h-72 grid-cols-5 items-end gap-3">
+        {data.map((item) => (
+          <div key={item.label} className="flex h-full flex-col justify-end gap-3">
+            <div
+              className={`rounded-t-2xl ${item.type === "negative" ? "bg-red-400" : item.type === "positive" ? "bg-volt-ok" : "bg-volt-yellow"}`}
+              style={{ height: `${(Math.abs(item.value) / max) * 80 + 12}%` }}
+            />
+            <p className="text-center text-xs font-bold text-zinc-500">{item.label}</p>
+            <p className="text-center text-xs font-black text-zinc-300">{currency(item.value)}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function FinanceiroPage() {
+  const [transactions, setTransactions] = useState<Transaction[]>(transactionsSeed);
+  const [activeTab, setActiveTab] = useState("Visão Geral");
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("Todos");
+  const [statusFilter, setStatusFilter] = useState("Todos");
+  const [selected, setSelected] = useState<Transaction | null>(transactionsSeed[0]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState<EditableRecord | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [storageReady, setStorageReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("volt_financeiro_premium_v1");
+      if (saved) {
+        const parsed = JSON.parse(saved) as Transaction[];
+        if (Array.isArray(parsed)) {
+          setTransactions(parsed);
+          setSelected(parsed[0] ?? null);
+        }
+      }
+    } catch {
+      setTransactions(transactionsSeed);
+    } finally {
+      setStorageReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    localStorage.setItem("volt_financeiro_premium_v1", JSON.stringify(transactions));
+  }, [storageReady, transactions]);
+
+  function getRecordKey(item: Transaction) {
+    return item.id;
+  }
+
+  function openEditor(item: Transaction) {
+    setEditingKey(getRecordKey(item));
+    setDraft({ ...item } as unknown as EditableRecord);
+    setEditOpen(true);
+  }
+
+  function saveEditor() {
+    if (!draft) return;
+    const next = draft as unknown as Transaction;
+    setTransactions((current) => current.map((item) => getRecordKey(item) === editingKey ? next : item));
+    setSelected(next);
+    setEditOpen(false);
+  }
+
+  function duplicateSelected() {
+    if (!selected) return;
+    const copy: Transaction = { ...selected, id: `FIN-${String(transactions.length + 1).padStart(3, "0")}`, title: `${selected.title} cópia` };
+    setTransactions((current) => [copy, ...current]);
+    setSelected(copy);
+    setEditingKey(getRecordKey(copy));
+    setDraft({ ...copy } as unknown as EditableRecord);
+    setEditOpen(true);
+  }
+
+  function removeSelected() {
+    if (!selected) return;
+    if (!window.confirm("Excluir este registro?")) return;
+    setTransactions((current) => current.filter((item) => getRecordKey(item) !== getRecordKey(selected)));
+    setSelected(null);
+    setModalOpen(false);
+    setEditOpen(false);
+  }
+
+
+  const filtered = useMemo(() => {
+    return transactions.filter((item) => {
+      const text = `${item.id} ${item.title} ${item.clientSupplier} ${item.costCenter} ${item.category} ${item.serviceOrder}`.toLowerCase();
+      const matchesSearch = text.includes(search.toLowerCase());
+      const matchesType = typeFilter === "Todos" || item.type === typeFilter;
+      const matchesStatus = statusFilter === "Todos" || item.status === statusFilter;
+      return matchesSearch && matchesType && matchesStatus;
+    });
+  }, [transactions, search, typeFilter, statusFilter]);
+
+  const totals = useMemo(() => {
+    const receitaRealizada = filtered.filter((item) => item.type === "Receita" && item.status === "Recebido").reduce((sum, item) => sum + item.actual, 0);
+    const despesasRealizadas = filtered.filter((item) => item.type === "Despesa" && item.status === "Pago").reduce((sum, item) => sum + item.actual, 0);
+    const receber = filtered.filter((item) => item.type === "Conta a receber" || (item.type === "Receita" && item.status === "Aberto")).reduce((sum, item) => sum + item.budgeted, 0);
+    const pagar = filtered.filter((item) => item.type === "Conta a pagar" || (item.type === "Despesa" && item.status === "Aberto")).reduce((sum, item) => sum + item.budgeted, 0);
+    const vencido = filtered.filter((item) => item.status === "Vencido").reduce((sum, item) => sum + item.budgeted, 0);
+    const saldo = receitaRealizada - despesasRealizadas;
+    const margem = receitaRealizada ? (saldo / receitaRealizada) * 100 : 0;
+    const metaMensal = 25000;
+    const metaAtingida = (receitaRealizada + receber) / metaMensal * 100;
+    const ticketMedio = receitaRealizada / Math.max(filtered.filter((item) => item.type === "Receita").length, 1);
+
+    return { receitaRealizada, despesasRealizadas, receber, pagar, vencido, saldo, margem, metaAtingida, ticketMedio };
+  }, [filtered]);
+
+  function createTransaction(type: TransactionType) {
+    const next: Transaction = {
+      id: `FIN-${String(transactions.length + 1).padStart(3, "0")}`,
+      type,
+      title: type === "Receita" ? "Nova receita" : type === "Despesa" ? "Nova despesa" : type,
+      clientSupplier: "Novo cliente/fornecedor",
+      costCenter: "Serviços técnicos",
+      category: "A definir",
+      budgeted: 0,
+      actual: 0,
+      competenceDate: "2026-06-30",
+      dueDate: "2026-06-30",
+      paymentDate: "",
+      status: "Aberto",
+      paymentMethod: "Pix",
+      serviceOrder: "Sem OS",
+      quote: "Sem cotação",
+      recurrence: "Única",
+      responsible: "Guilherme Santana",
+      notes: "Editar informações do lançamento."
+    };
+
+    setTransactions((current) => [next, ...current]);
+    setSelected(next);
+    setEditingKey(getRecordKey(next));
+    setDraft({ ...next } as unknown as EditableRecord);
+    setModalOpen(false);
+    setEditOpen(true);
+  }
+
+  function exportCsv() {
+    const header = ["ID", "Tipo", "Nome", "Cliente/Fornecedor", "Centro de Custo", "Categoria", "Orçado", "Realizado", "Vencimento", "Status"];
+    const rows = filtered.map((item) => [item.id, item.type, item.title, item.clientSupplier, item.costCenter, item.category, item.budgeted, item.actual, item.dueDate, item.status]);
+    const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "financeiro-volt.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const tableData =
+    activeTab === "Contas a Pagar"
+      ? filtered.filter((item) => item.type === "Conta a pagar" || item.type === "Despesa")
+      : activeTab === "Contas a Receber"
+        ? filtered.filter((item) => item.type === "Conta a receber" || item.type === "Receita")
+        : filtered;
+
+  return (
+    <AppShell>
+      <div className="space-y-5">
+        <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#111821] via-[#080c11] to-black p-5 shadow-soft md:p-7">
+          <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-volt-yellow/20 blur-[130px]" />
+          <div className="relative z-10 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Gestão financeira</p>
+              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Financeiro</h1>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
+                Controle receitas, despesas, contas a pagar e receber, centro de custo, metas, orçado x realizado e resultado financeiro da Volt.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
+              <button onClick={() => createTransaction("Receita")} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Nova receita</button>
+              <button onClick={() => createTransaction("Despesa")} className="btn-ghost inline-flex items-center justify-center gap-2"><TrendingDown size={17} /> Nova despesa</button>
+              <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
+              <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-white/[.025] p-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_.7fr_.7fr]">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
+              <Search size={17} className="text-volt-yellow" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar lançamento, cliente, OS, centro de custo..." className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-600" />
+            </div>
+
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
+              {["Todos", "Receita", "Despesa", "Conta a pagar", "Conta a receber"].map((type) => <option key={type}>{type}</option>)}
+            </select>
+
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
+              {["Todos", "Aberto", "Pago", "Recebido", "Vencido", "Cancelado"].map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </div>
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+          {[
+            ["Receita total", currency(totals.receitaRealizada), TrendingUp, "text-volt-ok", "+18%"],
+            ["Despesa total", currency(totals.despesasRealizadas), TrendingDown, "text-red-300", "+7%"],
+            ["Saldo/Lucro", currency(totals.saldo), Wallet, "text-volt-yellow", percent(totals.margem)],
+            ["Margem", percent(totals.margem), Gauge, "text-volt-ok", "líquida"],
+            ["A receber", currency(totals.receber), Receipt, "text-volt-yellow", "aberto"],
+            ["A pagar", currency(totals.pagar), CreditCard, "text-orange-300", "previsto"],
+            ["Vencidos", currency(totals.vencido), AlertTriangle, "text-red-300", "alerta"],
+            ["Meta mensal", percent(totals.metaAtingida), Target, "text-volt-yellow", "atingida"]
+          ].map(([label, value, Icon, color, note]) => {
+            const IconComp = Icon as typeof Wallet;
+            return (
+              <article key={String(label)} className="card-premium rounded-3xl p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <IconComp className={String(color)} size={22} />
+                  <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-black text-zinc-400">{String(note)}</span>
+                </div>
+                <p className={`text-xl font-black ${String(color)}`}>{String(value)}</p>
+                <p className="mt-1 text-xs leading-5 text-zinc-500">{String(label)}</p>
+              </article>
+            );
+          })}
+        </section>
+
+        <section className="volt-scroll flex gap-2 overflow-x-auto rounded-[2rem] border border-white/10 bg-white/[.025] p-2">
+          {tabs.map((tab) => (
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-black transition ${activeTab === tab ? "bg-volt-yellow text-black shadow-glow" : "text-zinc-400 hover:bg-white/10 hover:text-white"}`}>
+              {tab}
+            </button>
+          ))}
+        </section>
+
+        {activeTab === "Visão Geral" && (
+          <>
+            <section className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
+              <ChartCard title="Evolução financeira" subtitle="Comparação mensal de receitas, despesas e lucro." icon={<LineChart size={25} />}>
+                <LineFinanceChart />
+              </ChartCard>
+
+              <ChartCard title="Metas financeiras" subtitle="Progresso das metas mensais e anuais." icon={<Target size={25} />}>
+                <div className="space-y-4">
+                  {goals.map((goal) => {
+                    const reached = (goal.actual / goal.target) * 100;
+                    return (
+                      <div key={goal.title} className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                        <div className="mb-2 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="font-black">{goal.title}</p>
+                            <p className="mt-1 text-sm text-zinc-500">{currency(goal.actual)} de {currency(goal.target)}</p>
+                          </div>
+                          <p className="text-2xl font-black text-volt-yellow">{percent(reached)}</p>
+                        </div>
+                        <ProgressBar value={reached} danger={goal.title.includes("despesas") && reached > 90} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </ChartCard>
+            </section>
+
+            <section className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+              <ChartCard title="Orçado x realizado" subtitle="Confronta planejamento e execução mês a mês." icon={<BarChart3 size={25} />}>
+                <BudgetColumnChart />
+              </ChartCard>
+
+              <ChartCard title="Composição de despesas" subtitle="Mostra quais categorias consomem mais dinheiro." icon={<PieChart size={25} />}>
+                <DonutChart />
+              </ChartCard>
+            </section>
+          </>
+        )}
+
+        {["Lançamentos", "Contas a Pagar", "Contas a Receber"].includes(activeTab) && (
+          <section className="card-premium rounded-[2rem] p-5 md:p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">{activeTab}</p>
+                <h2 className="mt-1 text-2xl font-black">Tabela financeira</h2>
+              </div>
+              <Filter className="text-volt-yellow" size={26} />
+            </div>
+
+            <div className="volt-scroll overflow-x-auto">
+              <table className="w-full min-w-[1120px] border-separate border-spacing-y-2">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-[.16em] text-zinc-600">
+                    <th className="px-4 py-2">Tipo</th>
+                    <th className="px-4 py-2">Lançamento</th>
+                    <th className="px-4 py-2">Cliente/Fornecedor</th>
+                    <th className="px-4 py-2">Centro de custo</th>
+                    <th className="px-4 py-2">Orçado</th>
+                    <th className="px-4 py-2">Realizado</th>
+                    <th className="px-4 py-2">Vencimento</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableData.map((item) => (
+                    <tr key={item.id} className="bg-white/[.035] text-sm">
+                      <td className="rounded-l-2xl px-4 py-4"><Badge className={typeColors[item.type]}>{item.type}</Badge></td>
+                      <td className="px-4 py-4"><p className="font-black">{item.title}</p><p className="text-xs text-zinc-500">{item.id} • {item.serviceOrder}</p></td>
+                      <td className="px-4 py-4">{item.clientSupplier}</td>
+                      <td className="px-4 py-4">{item.costCenter}</td>
+                      <td className="px-4 py-4 font-bold">{currency(item.budgeted)}</td>
+                      <td className="px-4 py-4 font-black text-volt-yellow">{currency(item.actual)}</td>
+                      <td className="px-4 py-4">{item.dueDate}</td>
+                      <td className="px-4 py-4"><Badge className={statusColors[item.status]}>{item.status}</Badge></td>
+                      <td className="rounded-r-2xl px-4 py-4">
+                        <button onClick={() => { setSelected(item); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Detalhes</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4 text-sm font-black text-volt-yellow">
+              Total filtrado: {currency(tableData.reduce((sum, item) => sum + (item.actual || item.budgeted), 0))}
+            </div>
+          </section>
+        )}
+
+        {activeTab === "Centro de Custo" && (
+          <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
+            <div className="grid gap-4">
+              {costCentersSeed.map((center) => {
+                const consumed = (center.monthlyActual / center.monthlyBudget) * 100;
+                const status = consumed >= 100 ? "Estourado" : consumed >= 90 ? "Atenção" : "OK";
+                return (
+                  <article key={center.code} className="card-premium rounded-[2rem] p-5">
+                    <div className="mb-4 flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-black text-volt-yellow">{center.code}</p>
+                        <h3 className="mt-1 text-xl font-black">{center.name}</h3>
+                        <p className="mt-1 text-sm text-zinc-500">{center.type} • {center.responsible}</p>
+                      </div>
+                      <Badge className={status === "OK" ? "bg-volt-ok/15 text-volt-ok border-volt-ok/20" : status === "Atenção" ? "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25" : "bg-red-500/15 text-red-300 border-red-500/20"}>{status}</Badge>
+                    </div>
+                    <div className="mb-2 flex justify-between text-sm font-bold text-zinc-400">
+                      <span>{currency(center.monthlyActual)}</span>
+                      <span>{currency(center.monthlyBudget)}</span>
+                    </div>
+                    <ProgressBar value={consumed} danger={consumed >= 100} />
+                    <p className="mt-3 text-sm leading-6 text-zinc-500">{center.notes}</p>
+                  </article>
+                );
+              })}
+            </div>
+
+            <ChartCard title="Orçado x realizado por centro" subtitle="Mostra quais áreas estão dentro, em atenção ou estouradas." icon={<BarChart3 size={25} />}>
+              <div className="space-y-4">
+                {costCentersSeed.map((center) => {
+                  const consumed = (center.monthlyActual / center.monthlyBudget) * 100;
+                  return (
+                    <div key={center.code} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="font-black">{center.name}</p>
+                        <p className="text-sm font-black text-volt-yellow">{percent(consumed)}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-4 rounded-full bg-white/20" style={{ width: `${Math.min((center.monthlyBudget / 3200) * 100, 100)}%` }} />
+                        <div className="h-4 rounded-full bg-volt-yellow" style={{ width: `${Math.min((center.monthlyActual / 3200) * 100, 100)}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </ChartCard>
+          </section>
+        )}
+
+        {activeTab === "Orçado x Realizado" && (
+          <section className="grid gap-5 xl:grid-cols-2">
+            <ChartCard title="Comparativo mensal" subtitle="Receita orçada x receita realizada." icon={<BarChart3 size={25} />}>
+              <BudgetColumnChart />
+            </ChartCard>
+
+            <ChartCard title="Diferenças principais" subtitle="Variação em R$ e percentual." icon={<Gauge size={25} />}>
+              <div className="space-y-4">
+                {monthlyData.map((item) => {
+                  const diff = item.receita - item.orcado;
+                  const diffPercent = (diff / item.orcado) * 100;
+                  return (
+                    <div key={item.month} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <p className="font-black">{item.month}</p>
+                        <p className={`font-black ${diff >= 0 ? "text-volt-ok" : "text-red-300"}`}>{currency(diff)} • {percent(diffPercent)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </ChartCard>
+          </section>
+        )}
+
+        {activeTab === "Metas" && (
+          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {goals.map((goal) => {
+              const reached = (goal.actual / goal.target) * 100;
+              return (
+                <article key={goal.title} className="card-premium rounded-[2rem] p-5">
+                  <Target className="mb-5 text-volt-yellow" size={28} />
+                  <h3 className="text-xl font-black">{goal.title}</h3>
+                  <p className="mt-2 text-sm text-zinc-500">{currency(goal.actual)} de {currency(goal.target)}</p>
+                  <p className="mt-5 text-4xl font-black text-volt-yellow">{percent(reached)}</p>
+                  <div className="mt-4"><ProgressBar value={reached} danger={goal.title.includes("despesas") && reached > 90} /></div>
+                  <p className="mt-4 text-sm leading-6 text-zinc-400">
+                    Falta {currency(Math.max(goal.target - goal.actual, 0))} para atingir o planejado.
+                  </p>
+                </article>
+              );
+            })}
+          </section>
+        )}
+
+        {activeTab === "Fluxo de Caixa" && (
+          <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
+            <ChartCard title="Cascata do caixa" subtitle="Saldo inicial + receitas - despesas - impostos = saldo final." icon={<BarChart3 size={25} />}>
+              <CashFlowWaterfall />
+            </ChartCard>
+
+            <ChartCard title="Projeção" subtitle="Entradas, saídas e saldo estimado para os próximos meses." icon={<TrendingUp size={25} />}>
+              <div className="space-y-4">
+                {["Jul", "Ago", "Set", "Out"].map((month, index) => (
+                  <div key={month} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="font-black">{month}</p>
+                      <p className="text-lg font-black text-volt-yellow">{currency(14000 + index * 2500)}</p>
+                    </div>
+                    <ProgressBar value={60 + index * 8} />
+                  </div>
+                ))}
+              </div>
+            </ChartCard>
+          </section>
+        )}
+
+        {activeTab === "Relatórios" && (
+          <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
+            <div className="card-premium rounded-[2rem] p-5 md:p-6">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Relatório financeiro</p>
+              <h2 className="mt-2 text-3xl font-black">Executivo completo</h2>
+              <p className="mt-3 text-sm leading-7 text-zinc-400">
+                Gere um relatório com capa, resumo executivo, indicadores, receitas, despesas, centro de custo, metas, fluxo de caixa, gráficos e recomendações.
+              </p>
+
+              <div className="mt-6 grid gap-3 md:grid-cols-2">
+                {["Mensal", "Anual", "Centro de custo", "Orçado x realizado", "Fluxo de caixa", "Contas a pagar", "Contas a receber", "Completo executivo"].map((item) => (
+                  <div key={item} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 font-bold text-zinc-300">{item}</div>
+                ))}
+              </div>
+
+              <button onClick={() => window.print()} className="btn-primary mt-6 inline-flex items-center gap-2">
+                <FileText size={17} /> Gerar relatório PDF
+              </button>
+            </div>
+
+            <div className="card-premium rounded-[2rem] p-5 md:p-6">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Recomendações</p>
+              <div className="mt-5 space-y-3">
+                {["Revisar centros acima de 90% do orçamento.", "Fazer cobrança dos valores vencidos.", "Aumentar conversão de contas a receber.", "Separar despesas fixas e variáveis.", "Criar meta específica para automação."].map((item) => (
+                  <div key={item} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3">
+                    <CheckCircle2 className="shrink-0 text-volt-yellow" size={18} />
+                    <p className="text-sm leading-6 text-zinc-300">{item}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {modalOpen && selected && (
+          <div className="fixed inset-0 z-[90] grid place-items-center bg-black/75 p-4 backdrop-blur-sm">
+            <div className="volt-scroll max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+              <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
+                <div>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <Badge className={typeColors[selected.type]}>{selected.type}</Badge>
+                    <Badge className={statusColors[selected.status]}>{selected.status}</Badge>
+                  </div>
+                  <h2 className="text-3xl font-black">{selected.title}</h2>
+                  <p className="mt-2 text-sm text-zinc-500">{selected.id} • {selected.clientSupplier}</p>
+                </div>
+
+                <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
+                  <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
+                  <button onClick={removeSelected} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
+                  <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {[
+                  ["Tipo", selected.type],
+                  ["Cliente/Fornecedor", selected.clientSupplier],
+                  ["Centro de custo", selected.costCenter],
+                  ["Categoria", selected.category],
+                  ["Valor orçado", currency(selected.budgeted)],
+                  ["Valor realizado", currency(selected.actual)],
+                  ["Competência", selected.competenceDate],
+                  ["Vencimento", selected.dueDate],
+                  ["Pagamento/recebimento", selected.paymentDate || "Não realizado"],
+                  ["Forma de pagamento", selected.paymentMethod],
+                  ["OS vinculada", selected.serviceOrder],
+                  ["Cotação vinculada", selected.quote],
+                  ["Recorrência", selected.recurrence],
+                  ["Responsável", selected.responsible]
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                    <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{label}</p>
+                    <p className="mt-1 font-bold">{value}</p>
+                  </div>
+                ))}
+
+                <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4 md:col-span-2">
+                  <p className="text-sm font-black text-volt-yellow">Observação</p>
+                  <p className="mt-2 text-sm leading-7 text-zinc-300">{selected.notes}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editOpen && draft && (
+          <EditableRecordModal
+            title={editingKey ? "Editar registro" : "Novo registro"}
+            draft={draft}
+            setDraft={setDraft}
+            onSave={saveEditor}
+            onCancel={() => setEditOpen(false)}
+          />
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+
+type EditableRecord = Record<string, unknown>;
+
+function EditableRecordModal({
+  title,
+  draft,
+  setDraft,
+  onSave,
+  onCancel
+}: {
+  title: string;
+  draft: EditableRecord;
+  setDraft: (value: EditableRecord) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function fieldValue(value: unknown) {
+    if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+      return JSON.stringify(value, null, 2);
+    }
+
+    return String(value ?? "");
+  }
+
+  function parseValue(oldValue: unknown, raw: string) {
+    if (typeof oldValue === "number") return Number(raw.replace(",", ".")) || 0;
+    if (typeof oldValue === "boolean") return raw === "true";
+
+    if (Array.isArray(oldValue) || (typeof oldValue === "object" && oldValue !== null)) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return raw.split(",").map((item) => item.trim()).filter(Boolean);
+      }
+    }
+
+    return raw;
+  }
+
+  function updateField(key: string, raw: string) {
+    setDraft({
+      ...draft,
+      [key]: parseValue(draft[key], raw)
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+        <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Edição funcional</p>
+            <h2 className="mt-2 text-3xl font-black">{title}</h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-500">
+              Edite os dados, salve e a alteração ficará gravada no navegador.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+            <button onClick={onSave} className="btn-primary">Salvar alterações</button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          {Object.entries(draft).map(([key, value]) => {
+            const isLong = Array.isArray(value) || (typeof value === "object" && value !== null) || key.toLowerCase().includes("notes") || key.toLowerCase().includes("observ");
+
+            return (
+              <div key={key} className={`rounded-2xl border border-white/10 bg-white/[.035] p-4 ${isLong ? "md:col-span-2" : ""}`}>
+                <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{key}</label>
+
+                {typeof value === "boolean" ? (
+                  <select
+                    value={value ? "true" : "false"}
+                    onChange={(event) => updateField(key, event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  >
+                    <option value="true">Sim</option>
+                    <option value="false">Não</option>
+                  </select>
+                ) : isLong ? (
+                  <textarea
+                    value={fieldValue(value)}
+                    onChange={(event) => updateField(key, event.target.value)}
+                    rows={5}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  />
+                ) : (
+                  <input
+                    value={fieldValue(value)}
+                    onChange={(event) => updateField(key, event.target.value)}
+                    type={typeof value === "number" ? "number" : "text"}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2 border-t border-white/10 pt-5">
+          <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+          <button onClick={onSave} className="btn-primary">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
