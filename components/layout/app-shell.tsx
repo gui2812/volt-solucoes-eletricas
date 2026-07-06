@@ -28,7 +28,10 @@ const links = [
   { href: "/clientes", label: "Clientes", icon: Users, group: "Operação" },
   { href: "/agenda", label: "Agenda", icon: CalendarDays, group: "Operação" },
   { href: "/ordens", label: "Ordens de serviço", icon: ClipboardList, group: "Operação" },
-  { href: "/cotacoes", label: "Cotações", icon: FileText, group: "Operação" },
+
+  // Mantém a rota /cotacoes, mas deixa claro para uso real no sistema.
+  { href: "/cotacoes", label: "Orçamentos", icon: FileText, group: "Operação" },
+
   { href: "/materiais", label: "Materiais", icon: Package, group: "Gestão" },
   { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Gestão" },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Gestão" },
