@@ -2,6 +2,7 @@
 
 import { AppShell } from "@/components/layout/app-shell";
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
+import { createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -588,6 +589,68 @@ export default function CotacoesPage() {
     });
   }
 
+  async function sendToRemoteSignature(quote: Quote) {
+    try {
+      const result = await createRemoteSignatureLink({
+        id: quote.id,
+        title: quote.title,
+        client: quote.client,
+        contact: quote.contact,
+        phone: quote.phone,
+        email: quote.email,
+        address: quote.address,
+        createdAt: quote.createdAt,
+        validUntil: quote.validUntil,
+        payment: quote.payment,
+        warranty: quote.warranty,
+        deadline: quote.deadline,
+        status: quote.status,
+        responsible: quote.responsible,
+        notes: quote.notes,
+        items: quote.items
+      });
+
+      try {
+        await navigator.clipboard.writeText(result.signingUrl);
+      } catch {
+        // Se o navegador bloquear a cópia, o WhatsApp ainda abre com o link.
+      }
+
+      const whatsapp = makeSignatureWhatsAppLink(quote.phone, result.signingUrl, quote.id);
+
+      setQuotes((current) => current.map((item) => {
+        if (item.id !== quote.id) return item;
+
+        return {
+          ...item,
+          status: item.status === "Rascunho" ? "Enviada" : item.status,
+          history: [
+            ...item.history,
+            `Link de assinatura enviado em ${new Date().toLocaleDateString("pt-BR")}`
+          ]
+        };
+      }));
+
+      setSelected((current) => {
+        if (!current || current.id !== quote.id) return current;
+
+        return {
+          ...current,
+          status: current.status === "Rascunho" ? "Enviada" : current.status,
+          history: [
+            ...current.history,
+            `Link de assinatura enviado em ${new Date().toLocaleDateString("pt-BR")}`
+          ]
+        };
+      });
+
+      window.open(whatsapp, "_blank");
+      alert("Link de assinatura criado, copiado e aberto no WhatsApp do cliente.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao gerar link de assinatura.");
+    }
+  }
+
   function convertQuoteToOs(id: string) {
     const osNumber = `OS-${String(Date.now()).slice(-5)}`;
 
@@ -1068,6 +1131,7 @@ export default function CotacoesPage() {
                 <div className="flex flex-wrap gap-2">
                   <a href={quoteWhatsAppLink(selected)} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
                   <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF</button>
+                  <button onClick={() => sendToRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><Send size={17} /> Enviar assinatura</button>
                   <button onClick={() => convertQuoteToOs(selected.id)} className="btn-ghost">Converter em OS</button>
                   <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
                   <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
