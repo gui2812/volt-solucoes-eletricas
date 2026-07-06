@@ -22,7 +22,7 @@ import {
   Wallet,
   Wrench
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type QuoteStatus =
   | "Rascunho"
@@ -34,6 +34,16 @@ type QuoteStatus =
   | "Recusada"
   | "Vencida"
   | "Convertida em OS";
+
+
+type SignatureMode = "Pendente" | "Rubrica predefinida" | "Assinatura livre";
+
+type SignatureData = {
+  signerName: string;
+  mode: SignatureMode;
+  signedAt: string;
+  signatureDataUrl?: string;
+};
 
 type QuoteItem = {
   kind: "Serviço" | "Material" | "Mão de obra" | "Deslocamento" | "Taxa";
@@ -69,6 +79,8 @@ type Quote = {
   items: QuoteItem[];
   history: string[];
   notes: string;
+  responsibleSignature?: SignatureData;
+  clientSignature?: SignatureData;
 };
 
 const quotesSeed: Quote[] = [
@@ -266,6 +278,19 @@ function quoteTotal(quote: Quote) {
 
 function quoteCost(quote: Quote) {
   return quote.items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function makeSignature(name: string, mode: SignatureMode, signatureDataUrl?: string): SignatureData {
+  return {
+    signerName: name || "",
+    mode,
+    signedAt: todayIso(),
+    signatureDataUrl
+  };
 }
 
 function Badge({ className, children }: { className: string; children: React.ReactNode }) {
@@ -530,7 +555,7 @@ export default function CotacoesPage() {
         quantity: item.quantity,
         unit: item.unit,
         unitPrice: item.unitPrice,
-        total: item.quantity * item.unitPrice,
+        total: item.quantity * item.unitPrice * (1 - item.discount / 100),
         kind: item.kind
       })),
 
@@ -552,10 +577,14 @@ export default function CotacoesPage() {
       responsibleRole: "Responsável técnico",
       responsibleDocument: "Volt Soluções Elétricas",
 
+      responsibleSignature: quote.responsibleSignature ?? makeSignature(quote.responsible || "Guilherme Santana", "Rubrica predefinida"),
+      clientSignature: quote.clientSignature ?? makeSignature(quote.client || quote.contact || "Cliente", "Pendente"),
+
       companyPhone: "(11) 98878-3401",
       companyEmail: "solucoeseletricasvolt@gmail.com",
       companyCity: "São Paulo / SP",
-      companyWebsite: "www.voltsolucoeseletricas.com.br"
+      companyWebsite: "volt-solucoes-eletricas.vercel.app",
+      logoSrc: "/img/logo.png"
     });
   }
 
@@ -629,7 +658,9 @@ export default function CotacoesPage() {
         { kind: "Serviço", code: "SRV-001", description: "Mão de obra / serviço técnico", unit: "serv.", quantity: 1, unitPrice: 0, unitCost: 0, discount: 0 }
       ],
       history: ["Orçamento criado"],
-      notes: ""
+      notes: "",
+      responsibleSignature: makeSignature("Guilherme Santana", "Rubrica predefinida"),
+      clientSignature: makeSignature("", "Pendente")
     };
 
     setSelected(next);
@@ -1189,6 +1220,19 @@ function QuoteEditorModal({
     updateQuote("history", raw.split("\n").map((item) => item.trim()).filter(Boolean));
   }
 
+  function updateSignature(role: "responsibleSignature" | "clientSignature", value: SignatureData) {
+    updateQuote(role, value);
+  }
+
+  function signResponsiblePredefined() {
+    updateSignature("responsibleSignature", makeSignature(draft.responsible || "Guilherme Santana", "Rubrica predefinida"));
+  }
+
+  function signClientPredefined() {
+    updateSignature("clientSignature", makeSignature(draft.contact || draft.client || "Cliente", "Rubrica predefinida"));
+  }
+
+
   const total = quoteTotal(draft);
   const cost = quoteCost(draft);
   const profit = total - cost;
@@ -1400,6 +1444,39 @@ function QuoteEditorModal({
               </div>
             </section>
 
+
+            <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+              <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Assinaturas digitais</p>
+                  <h3 className="mt-1 text-xl font-black">Responsável técnico e cliente</h3>
+                  <p className="mt-2 text-sm leading-6 text-zinc-500">
+                    Use rubrica predefinida ou assinatura livre. No celular, o cliente pode assinar com o dedo.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                <SignatureEditor
+                  title="Responsável técnico"
+                  description="Assinatura que sairá no orçamento em nome do responsável."
+                  value={draft.responsibleSignature ?? makeSignature(draft.responsible || "Guilherme Santana", "Pendente")}
+                  suggestedName={draft.responsible || "Guilherme Santana"}
+                  onPredefined={signResponsiblePredefined}
+                  onChange={(signature) => updateSignature("responsibleSignature", signature)}
+                />
+
+                <SignatureEditor
+                  title="Cliente"
+                  description="Assinatura para aprovação do orçamento pelo cliente."
+                  value={draft.clientSignature ?? makeSignature(draft.contact || draft.client || "Cliente", "Pendente")}
+                  suggestedName={draft.contact || draft.client || "Cliente"}
+                  onPredefined={signClientPredefined}
+                  onChange={(signature) => updateSignature("clientSignature", signature)}
+                />
+              </div>
+            </section>
+
             <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
               <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Histórico</p>
               <textarea
@@ -1444,6 +1521,172 @@ function QuoteEditorModal({
             </section>
           </aside>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+function SignatureEditor({
+  title,
+  description,
+  value,
+  suggestedName,
+  onPredefined,
+  onChange
+}: {
+  title: string;
+  description: string;
+  value: SignatureData;
+  suggestedName: string;
+  onPredefined: () => void;
+  onChange: (signature: SignatureData) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
+
+  function prepareCanvas() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(rect.width, 420);
+    const height = 160;
+
+    if (canvas.width !== width * 2 || canvas.height !== height * 2) {
+      canvas.width = width * 2;
+      canvas.height = height * 2;
+
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.scale(2, 2);
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = "#ffffff";
+      }
+    }
+  }
+
+  useEffect(() => {
+    prepareCanvas();
+  }, []);
+
+  function point(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+  }
+
+  function startDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
+    prepareCanvas();
+    drawing.current = true;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+
+    const p = point(event);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  }
+
+  function draw(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+
+    const p = point(event);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+
+  function stopDrawing() {
+    drawing.current = false;
+  }
+
+  function clearCanvas() {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onChange(makeSignature(suggestedName, "Pendente"));
+  }
+
+  function saveFreeSignature() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    onChange(makeSignature(suggestedName, "Assinatura livre", canvas.toDataURL("image/png")));
+  }
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+        <div>
+          <p className="text-sm font-black text-volt-yellow">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p>
+        </div>
+
+        <Badge className={value.mode === "Pendente" ? "bg-white/10 text-zinc-300 border-white/10" : "bg-volt-ok/15 text-volt-ok border-volt-ok/20"}>
+          {value.mode}
+        </Badge>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[.035] p-4">
+        <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Nome exibido</p>
+        <input
+          value={value.signerName || suggestedName}
+          onChange={(event) => onChange({ ...value, signerName: event.target.value })}
+          className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+        />
+
+        <div className="mt-4 overflow-hidden rounded-2xl border border-dashed border-volt-yellow/30 bg-[#050505]">
+          {value.signatureDataUrl ? (
+            <img src={value.signatureDataUrl} alt={`Assinatura ${title}`} className="h-40 w-full object-contain p-4" />
+          ) : value.mode === "Rubrica predefinida" ? (
+            <div className="grid h-40 place-items-center px-4 text-center">
+              <div>
+                <p className="font-serif text-4xl italic leading-tight text-white md:text-5xl">{value.signerName || suggestedName}</p>
+                <p className="mt-3 text-xs font-bold text-zinc-500">Rubrica predefinida gerada pelo sistema</p>
+              </div>
+            </div>
+          ) : (
+            <canvas
+              ref={canvasRef}
+              onPointerDown={startDrawing}
+              onPointerMove={draw}
+              onPointerUp={stopDrawing}
+              onPointerLeave={stopDrawing}
+              className="h-40 w-full touch-none cursor-crosshair bg-[#050505]"
+            />
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-2 md:grid-cols-3">
+          <button type="button" onClick={onPredefined} className="rounded-2xl border border-white/10 px-4 py-3 text-xs font-black text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow">
+            Rubrica predefinida
+          </button>
+          <button type="button" onClick={saveFreeSignature} className="rounded-2xl border border-white/10 px-4 py-3 text-xs font-black text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow">
+            Salvar livre
+          </button>
+          <button type="button" onClick={clearCanvas} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-xs font-black text-red-200">
+            Limpar
+          </button>
+        </div>
+
+        <p className="mt-3 text-xs leading-5 text-zinc-600">
+          Data da assinatura: {value.signedAt || "pendente"}
+        </p>
       </div>
     </div>
   );
