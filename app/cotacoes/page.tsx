@@ -1,6 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -504,111 +505,58 @@ export default function CotacoesPage() {
   }
 
   function openQuotePdf(quote: Quote) {
-    const popup = window.open("", "_blank");
+    const discountValue = quote.items.reduce((sum, item) => {
+      const gross = item.quantity * item.unitPrice;
+      return sum + gross * (item.discount / 100);
+    }, 0);
 
-    if (!popup) {
-      alert("Permita pop-ups para gerar o PDF do orçamento.");
-      return;
-    }
+    const laborValue = quote.items
+      .filter((item) => item.kind === "Mão de obra")
+      .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
 
-    const itemsRows = quote.items.map((item) => {
-      const total = item.quantity * item.unitPrice * (1 - item.discount / 100);
-      return `
-        <tr>
-          <td>${item.kind}</td>
-          <td>${item.description}</td>
-          <td>${item.quantity} ${item.unit}</td>
-          <td>${currency(item.unitPrice)}</td>
-          <td>${item.discount}%</td>
-          <td>${currency(total)}</td>
-        </tr>
-      `;
-    }).join("");
+    openOrcamentoPdf({
+      number: quote.id,
+      date: quote.createdAt,
+      validUntil: quote.validUntil,
+      status: quote.status,
 
-    const html = `
-      <!doctype html>
-      <html lang="pt-BR">
-        <head>
-          <meta charset="utf-8" />
-          <title>Orçamento ${quote.id} - Volt Soluções Elétricas</title>
-          <style>
-            body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #171717; background: #fff; }
-            .page { padding: 34px; }
-            .cover { background: #050505; color: white; padding: 28px; border-radius: 18px; margin-bottom: 24px; border-left: 10px solid #ffcb2f; }
-            .brand { color: #ffcb2f; font-size: 12px; letter-spacing: 3px; font-weight: 900; text-transform: uppercase; }
-            h1 { margin: 8px 0 4px; font-size: 30px; }
-            h2 { margin: 26px 0 10px; font-size: 18px; border-bottom: 2px solid #ffcb2f; padding-bottom: 8px; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-            .box { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
-            .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #777; font-weight: 800; }
-            .value { margin-top: 4px; font-weight: 800; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-            th { background: #050505; color: #ffcb2f; padding: 9px; text-align: left; }
-            td { border: 1px solid #ddd; padding: 9px; vertical-align: top; }
-            .total { margin-top: 18px; text-align: right; font-size: 24px; font-weight: 900; }
-            .footer { margin-top: 28px; color: #666; font-size: 11px; line-height: 1.6; }
-          </style>
-        </head>
-        <body>
-          <main class="page">
-            <section class="cover">
-              <div class="brand">Volt Soluções Elétricas</div>
-              <h1>Orçamento ${quote.id}</h1>
-              <p>${quote.title}</p>
-            </section>
+      clientName: quote.client,
+      clientPhone: quote.phone,
+      clientAddress: quote.address,
+      service: quote.title,
 
-            <h2>Dados do cliente</h2>
-            <section class="grid">
-              <div class="box"><div class="label">Cliente</div><div class="value">${quote.client || "-"}</div></div>
-              <div class="box"><div class="label">Contato</div><div class="value">${quote.contact || "-"}</div></div>
-              <div class="box"><div class="label">Telefone</div><div class="value">${quote.phone || "-"}</div></div>
-              <div class="box"><div class="label">E-mail</div><div class="value">${quote.email || "-"}</div></div>
-              <div class="box"><div class="label">Endereço</div><div class="value">${quote.address || "-"}</div></div>
-              <div class="box"><div class="label">Serviço</div><div class="value">${quote.serviceType}</div></div>
-            </section>
+      items: quote.items.map((item) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        total: item.quantity * item.unitPrice,
+        kind: item.kind
+      })),
 
-            <h2>Condições comerciais</h2>
-            <section class="grid">
-              <div class="box"><div class="label">Validade</div><div class="value">${quote.validUntil}</div></div>
-              <div class="box"><div class="label">Pagamento</div><div class="value">${quote.payment}</div></div>
-              <div class="box"><div class="label">Garantia</div><div class="value">${quote.warranty}</div></div>
-              <div class="box"><div class="label">Prazo</div><div class="value">${quote.deadline}</div></div>
-            </section>
+      laborValue,
+      discountValue,
 
-            <h2>Itens do orçamento</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Tipo</th>
-                  <th>Descrição</th>
-                  <th>Qtd</th>
-                  <th>Valor unit.</th>
-                  <th>Desc.</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>${itemsRows}</tbody>
-            </table>
+      paymentCondition: quote.payment,
+      executionDeadline: quote.deadline,
+      warranty: quote.warranty,
 
-            <div class="total">Total: ${currency(quoteTotal(quote))}</div>
+      technicalNotes: [
+        "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
+        "Os valores podem sofrer alteração caso haja mudança de escopo, local de instalação ou necessidade de materiais adicionais.",
+        "A execução será iniciada após aprovação do orçamento e alinhamento de agenda.",
+        quote.notes
+      ].filter(Boolean),
 
-            <h2>Observações</h2>
-            <p>${quote.notes || "Sem observações adicionais."}</p>
+      responsibleName: quote.responsible || "Guilherme Santana",
+      responsibleRole: "Responsável técnico",
+      responsibleDocument: "Volt Soluções Elétricas",
 
-            <div class="footer">
-              Responsável: ${quote.responsible || "Volt Soluções Elétricas"}<br />
-              Este orçamento é válido até ${quote.validUntil}. Valores sujeitos à alteração em caso de mudança de escopo ou materiais.
-            </div>
-          </main>
-        </body>
-      </html>
-    `;
-
-    popup.document.open();
-    popup.document.write(html);
-    popup.document.close();
-    popup.focus();
-    setTimeout(() => popup.print(), 500);
+      companyPhone: "(11) 98878-3401",
+      companyEmail: "solucoeseletricasvolt@gmail.com",
+      companyCity: "São Paulo / SP",
+      companyWebsite: "www.voltsolucoeseletricas.com.br"
+    });
   }
 
   function convertQuoteToOs(id: string) {
