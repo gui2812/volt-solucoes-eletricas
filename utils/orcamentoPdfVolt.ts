@@ -7,6 +7,13 @@ export type OrcamentoPdfItem = {
   kind?: "Material" | "Serviço" | "Mão de obra" | "Deslocamento" | "Taxa" | "Outro";
 };
 
+export type OrcamentoPdfSignature = {
+  signerName?: string;
+  mode?: "Pendente" | "Rubrica predefinida" | "Assinatura livre";
+  signedAt?: string;
+  signatureDataUrl?: string;
+};
+
 export type OrcamentoPdfData = {
   number: string;
   date: string;
@@ -32,10 +39,14 @@ export type OrcamentoPdfData = {
   responsibleRole?: string;
   responsibleDocument?: string;
 
+  responsibleSignature?: OrcamentoPdfSignature;
+  clientSignature?: OrcamentoPdfSignature;
+
   companyPhone?: string;
   companyEmail?: string;
   companyCity?: string;
   companyWebsite?: string;
+  logoSrc?: string;
 };
 
 function brl(value: number) {
@@ -52,11 +63,7 @@ function formatDate(value: string) {
 
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric"
-  });
+  return date.toLocaleDateString("pt-BR");
 }
 
 function safe(value?: string) {
@@ -67,16 +74,57 @@ function rowTotal(item: OrcamentoPdfItem) {
   return typeof item.total === "number" ? item.total : Number(item.quantity || 0) * Number(item.unitPrice || 0);
 }
 
+function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackName: string, isClient = false) {
+  const name = safe(signature?.signerName || fallbackName);
+  const mode = signature?.mode || "Pendente";
+  const signedAt = signature?.signedAt ? formatDate(signature.signedAt) : "";
+
+  if (signature?.signatureDataUrl) {
+    return `
+      <div class="signature-visual">
+        <img src="${signature.signatureDataUrl}" alt="Assinatura" />
+      </div>
+      <div class="signature-line"></div>
+      <div class="signature-name">${name}</div>
+      <div class="signature-doc">${mode}${signedAt ? ` em ${signedAt}` : ""}</div>
+    `;
+  }
+
+  if (mode === "Rubrica predefinida") {
+    return `
+      <div class="signature-visual">
+        <div class="signature-script">${name}</div>
+      </div>
+      <div class="signature-line"></div>
+      <div class="signature-name">${name}</div>
+      <div class="signature-doc">Rubrica predefinida${signedAt ? ` em ${signedAt}` : ""}</div>
+    `;
+  }
+
+  return `
+    <div class="signature-visual pending">
+      <div>
+        <div class="pending-icon">✍</div>
+        <strong>${isClient ? "Assinatura do cliente pendente" : "Assinatura pendente"}</strong>
+        <span>Assinar pelo celular, tablet ou computador</span>
+      </div>
+    </div>
+    <div class="signature-line"></div>
+    <div class="signature-name">${name}</div>
+    <div class="signature-doc">Aguardando assinatura digital</div>
+  `;
+}
+
 export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
   const subtotal = data.items.reduce((sum, item) => sum + rowTotal(item), 0);
-
   const laborValue =
     typeof data.laborValue === "number"
       ? data.laborValue
       : data.items.filter((item) => item.kind === "Mão de obra").reduce((sum, item) => sum + rowTotal(item), 0);
-
   const discountValue = Number(data.discountValue || 0);
   const total = Math.max(subtotal - discountValue, 0);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const logoSrc = data.logoSrc || "/img/logo.png";
 
   const itemsRows = data.items.map((item, index) => {
     const totalItem = rowTotal(item);
@@ -84,7 +132,10 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     return `
       <tr>
         <td class="td item-number">${String(index + 1).padStart(2, "0")}</td>
-        <td class="td description">${safe(item.description)}</td>
+        <td class="td description">
+          <strong>${safe(item.description)}</strong>
+          <span>${safe(item.kind || "Item")}</span>
+        </td>
         <td class="td center">${item.quantity || 0}</td>
         <td class="td center">${safe(item.unit)}</td>
         <td class="td money">${brl(Number(item.unitPrice || 0))}</td>
@@ -94,7 +145,7 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
   }).join("");
 
   const notes = (data.technicalNotes?.length ? data.technicalNotes : [
-    "Todos os materiais fornecidos são de primeira linha e conforme normas aplicáveis.",
+    "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
     "Serviço executado por profissional qualificado.",
     "Testes de funcionamento e entrega técnica inclusos."
   ]).map((note) => `<li>${note}</li>`).join("");
@@ -104,6 +155,7 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
+  <base href="${origin}/" />
   <title>Orçamento ${safe(data.number)} - Volt Soluções Elétricas</title>
 
   <style>
@@ -132,10 +184,10 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       margin: 0 auto;
       overflow: hidden;
       background:
-        radial-gradient(circle at 20% 0%, rgba(255, 203, 47, .10), transparent 28%),
+        radial-gradient(circle at 18% 0%, rgba(255, 203, 47, .12), transparent 28%),
         radial-gradient(circle at 80% 100%, rgba(255, 203, 47, .08), transparent 35%),
         linear-gradient(135deg, #050505 0%, #090909 48%, #030303 100%);
-      padding: 12mm;
+      padding: 10mm;
     }
 
     .page::before {
@@ -150,22 +202,22 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       pointer-events: none;
     }
 
-    .diagonal {
+    .yellow-cut {
       position: absolute;
-      top: -38mm;
-      right: 82mm;
-      width: 14mm;
-      height: 90mm;
+      top: -12mm;
+      right: -20mm;
+      width: 82mm;
+      height: 34mm;
       background: #ffcb2f;
-      transform: rotate(25deg);
-      box-shadow: 14px 0 0 rgba(255,255,255,.95), 19px 0 0 rgba(255,255,255,.25);
+      transform: skewX(-24deg);
+      box-shadow: -7mm 0 0 rgba(255,255,255,.92), -10mm 0 0 rgba(255,255,255,.22);
     }
 
     .bottom-bar {
       position: absolute;
-      right: -8mm;
+      left: -10mm;
       bottom: 0;
-      width: 96mm;
+      width: 112mm;
       height: 14mm;
       background: #ffcb2f;
       transform: skewX(-25deg);
@@ -178,107 +230,111 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 
     .header {
       display: grid;
-      grid-template-columns: 1.05fr .95fr;
-      gap: 14mm;
+      grid-template-columns: 1.08fr .92fr;
+      gap: 9mm;
       align-items: start;
     }
 
     .brand {
-      display: flex;
+      display: grid;
+      grid-template-columns: 34mm 1fr;
+      gap: 6mm;
       align-items: center;
-      gap: 8mm;
+      min-height: 38mm;
     }
 
-    .brand-mark {
-      width: 30mm;
-      height: 30mm;
+    .logo-box {
       display: grid;
       place-items: center;
-      border: 2px solid #ffcb2f;
-      border-radius: 50%;
-      color: #ffcb2f;
-      font-size: 34mm;
-      font-weight: 900;
+      min-height: 34mm;
+    }
+
+    .logo-box img {
+      width: 32mm;
+      height: 32mm;
+      object-fit: contain;
+    }
+
+    .brand-info {
+      border-left: 1mm solid #ffcb2f;
+      padding-left: 6mm;
+    }
+
+    .brand-title {
+      font-size: 6.5mm;
       line-height: 1;
-    }
-
-    .brand-text {
-      min-width: 0;
-    }
-
-    .brand-name {
-      font-size: 24mm;
-      line-height: .82;
       font-weight: 950;
-      letter-spacing: 2px;
-      color: #fff;
+      letter-spacing: 1.1px;
       text-transform: uppercase;
+      color: #fff;
     }
 
     .brand-sub {
-      margin-top: 3mm;
+      margin-top: 2mm;
       color: #ffcb2f;
-      font-size: 5mm;
+      font-size: 3.8mm;
       font-weight: 900;
-      letter-spacing: 2.5px;
+      letter-spacing: 2.2px;
       text-transform: uppercase;
     }
 
     .brand-slogan {
-      margin-top: 3mm;
+      margin-top: 2mm;
       color: #d6d6d6;
-      font-size: 2.45mm;
+      font-size: 2.3mm;
       font-weight: 700;
-      letter-spacing: .6px;
+      letter-spacing: .5px;
       text-transform: uppercase;
     }
 
     .company-contact {
-      padding-top: 2mm;
+      border: 1px solid rgba(255, 203, 47, .65);
+      border-radius: 3mm;
+      padding: 4mm;
+      background: rgba(0,0,0,.33);
     }
 
     .contact-line {
       display: grid;
-      grid-template-columns: 8mm 1fr 8mm;
+      grid-template-columns: 7mm 1fr;
       align-items: center;
-      gap: 3mm;
-      min-height: 9mm;
-      border-bottom: 1px solid #ffcb2f;
+      gap: 2mm;
+      min-height: 7.3mm;
+      border-bottom: 1px solid rgba(255,255,255,.14);
       color: #fff;
-      font-size: 4.2mm;
+      font-size: 3.2mm;
+    }
+
+    .contact-line:last-child {
+      border-bottom: 0;
     }
 
     .contact-line .icon {
-      color: #fff;
-      font-size: 5mm;
-      text-align: center;
-    }
-
-    .contact-line .zap {
       color: #ffcb2f;
-      text-align: right;
+      text-align: center;
+      font-size: 4mm;
     }
 
     .top-area {
       display: grid;
-      grid-template-columns: 1.15fr .85fr;
-      gap: 10mm;
-      margin-top: 11mm;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 8mm;
+      margin-top: 7mm;
     }
 
     .title {
       margin: 0;
       color: white;
-      font-size: 15mm;
-      line-height: 1;
+      font-size: 13mm;
+      line-height: .9;
       font-weight: 950;
-      letter-spacing: 3px;
+      letter-spacing: 2px;
       text-transform: uppercase;
     }
 
     .title-line {
-      margin-top: 5mm;
-      width: 30mm;
+      margin-top: 4mm;
+      width: 31mm;
       height: 1mm;
       background: #ffcb2f;
     }
@@ -286,18 +342,18 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     .section-title {
       display: flex;
       align-items: center;
-      gap: 4mm;
-      margin-bottom: 4mm;
+      gap: 3mm;
+      margin-bottom: 3mm;
       color: #fff;
       text-transform: uppercase;
       font-weight: 900;
-      font-size: 4.3mm;
-      letter-spacing: 1.3px;
+      font-size: 3.6mm;
+      letter-spacing: 1px;
     }
 
     .section-title .square {
-      width: 10mm;
-      height: 10mm;
+      width: 8mm;
+      height: 8mm;
       border-radius: 2mm;
       display: grid;
       place-items: center;
@@ -307,13 +363,13 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     }
 
     .yellow-line {
-      height: .7mm;
+      height: .5mm;
       flex: 1;
       background: #ffcb2f;
     }
 
     .client-card {
-      margin-top: 12mm;
+      margin-top: 8mm;
     }
 
     .client-box,
@@ -321,21 +377,26 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     .notes-box,
     .condition-box,
     .signature-box,
-    .thanks-box {
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 2mm;
+    .thanks-box,
+    .intro-box {
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 3mm;
       background: rgba(0,0,0,.35);
       box-shadow: 0 0 22px rgba(0,0,0,.28);
     }
 
+    .client-box {
+      padding: 2mm 0;
+    }
+
     .client-row {
       display: grid;
-      grid-template-columns: 25mm 1fr;
-      min-height: 9mm;
+      grid-template-columns: 29mm 1fr;
+      min-height: 7.2mm;
       align-items: center;
-      border-bottom: 1px solid rgba(255,255,255,.18);
-      padding: 1.2mm 4mm;
-      font-size: 3.25mm;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      padding: 1mm 4mm;
+      font-size: 3mm;
     }
 
     .client-row:last-child {
@@ -354,34 +415,53 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 
     .budget-card {
       border-color: #ffcb2f;
-      padding: 5mm 5.5mm;
+      padding: 5mm;
     }
 
-    .budget-number {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      border-bottom: 1px solid rgba(255,255,255,.30);
+    .budget-head {
+      display: grid;
+      grid-template-columns: 13mm 1fr;
+      gap: 4mm;
+      align-items: center;
       padding-bottom: 4mm;
-      margin-bottom: 2mm;
-      font-size: 4.6mm;
+      border-bottom: 1px solid rgba(255,255,255,.18);
+      margin-bottom: 3mm;
     }
 
-    .budget-number .code {
+    .budget-icon {
+      width: 13mm;
+      height: 13mm;
+      display: grid;
+      place-items: center;
+      border: .6mm solid #ffcb2f;
+      border-radius: 3mm;
       color: #ffcb2f;
-      font-weight: 950;
       font-size: 6mm;
+    }
+
+    .budget-label {
+      color: #fff;
+      font-size: 4.2mm;
+    }
+
+    .budget-code {
+      margin-top: 1mm;
+      color: #ffcb2f;
+      font-size: 7.6mm;
+      line-height: 1;
+      font-weight: 950;
       letter-spacing: 2px;
+      word-break: break-word;
     }
 
     .budget-row {
       display: grid;
-      grid-template-columns: 8mm 1fr 1fr;
-      gap: 3mm;
+      grid-template-columns: 8mm 42mm 1fr;
+      gap: 2mm;
       align-items: center;
-      min-height: 9mm;
-      border-bottom: 1px solid rgba(255,255,255,.18);
-      font-size: 4mm;
+      min-height: 8.5mm;
+      border-bottom: 1px solid rgba(255,255,255,.13);
+      font-size: 3.4mm;
     }
 
     .budget-row:last-child {
@@ -390,7 +470,8 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 
     .budget-row .icon {
       color: #ffcb2f;
-      font-size: 5mm;
+      font-size: 4mm;
+      text-align: center;
     }
 
     .budget-row strong {
@@ -400,11 +481,36 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     .budget-row .value {
       text-align: right;
       color: #fff;
+      font-weight: 800;
     }
 
-    .budget-row.status .value {
+    .status-pill {
+      display: inline-flex;
+      justify-content: center;
+      border: 1px solid rgba(255,203,47,.8);
+      border-radius: 999px;
+      padding: 1.3mm 4mm;
       color: #ffcb2f;
-      font-weight: 900;
+      font-weight: 950;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .intro-box {
+      margin-top: 7mm;
+      display: grid;
+      grid-template-columns: 9mm 1fr;
+      gap: 3mm;
+      align-items: center;
+      padding: 3.5mm 4mm;
+      color: #f1f1f1;
+      font-size: 3.3mm;
+      line-height: 1.4;
+    }
+
+    .intro-box b {
+      color: #ffcb2f;
+      font-size: 5mm;
     }
 
     table {
@@ -414,10 +520,10 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     }
 
     .items-table {
-      margin-top: 4mm;
+      margin-top: 5mm;
       overflow: hidden;
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 2mm;
+      border: 1px solid rgba(255,255,255,.30);
+      border-radius: 3mm;
       background: rgba(0,0,0,.28);
     }
 
@@ -425,10 +531,12 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       height: 9mm;
       padding: 2mm 3mm;
       border-bottom: 1px solid #ffcb2f;
-      border-right: 1px solid rgba(255,255,255,.18);
-      color: #fff;
-      font-size: 3.4mm;
+      border-right: 1px solid rgba(255,255,255,.15);
+      color: #ffcb2f;
+      font-size: 3.25mm;
       text-align: center;
+      text-transform: uppercase;
+      letter-spacing: .5px;
     }
 
     .items-table th:last-child {
@@ -436,12 +544,12 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     }
 
     .td {
-      padding: 2.2mm 3mm;
+      padding: 2mm 3mm;
       min-height: 8mm;
-      border-right: 1px solid rgba(255,255,255,.15);
-      border-bottom: 1px solid rgba(255,255,255,.13);
+      border-right: 1px solid rgba(255,255,255,.12);
+      border-bottom: 1px solid rgba(255,255,255,.10);
       color: #efefef;
-      font-size: 3.15mm;
+      font-size: 3mm;
       line-height: 1.2;
     }
 
@@ -457,11 +565,23 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       color: #ffcb2f;
       font-weight: 950;
       text-align: center;
-      font-size: 4mm;
+      font-size: 3.5mm;
     }
 
     .description {
       width: 52%;
+    }
+
+    .description strong {
+      display: block;
+      color: #fff;
+    }
+
+    .description span {
+      display: block;
+      margin-top: 1mm;
+      color: #a1a1aa;
+      font-size: 2.5mm;
     }
 
     .center {
@@ -473,12 +593,56 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       white-space: nowrap;
     }
 
+    .commercial-row {
+      display: grid;
+      grid-template-columns: .92fr 1.08fr;
+      gap: 5mm;
+      margin-top: 4mm;
+    }
+
+    .notes-box,
+    .condition-box {
+      min-height: 38mm;
+      padding: 4mm;
+    }
+
+    .notes-list {
+      margin: 0;
+      padding-left: 5mm;
+      color: #f2f2f2;
+      font-size: 3mm;
+      line-height: 1.45;
+    }
+
+    .condition-row {
+      display: grid;
+      grid-template-columns: 8mm 38mm 1fr;
+      align-items: center;
+      min-height: 10mm;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      font-size: 3mm;
+      color: #f1f1f1;
+      gap: 2mm;
+    }
+
+    .condition-row:last-child {
+      border-bottom: 0;
+    }
+
+    .condition-row .ico {
+      color: #ffcb2f;
+      font-size: 4mm;
+      text-align: center;
+    }
+
+    .condition-row strong {
+      color: #fff;
+    }
+
     .summary {
-      width: 106mm;
-      margin-left: auto;
-      margin-top: 3mm;
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 2mm;
+      margin-top: 5mm;
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 3mm;
       overflow: hidden;
       background: rgba(0,0,0,.36);
     }
@@ -487,14 +651,14 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       display: grid;
       grid-template-columns: 1fr 42mm;
       align-items: center;
-      min-height: 9mm;
-      border-bottom: 1px solid rgba(255,255,255,.16);
-      font-size: 3.7mm;
+      min-height: 8.8mm;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      font-size: 3.4mm;
     }
 
     .summary-row span,
     .summary-row strong {
-      padding: 0 5mm;
+      padding: 0 4mm;
     }
 
     .summary-row strong {
@@ -504,11 +668,11 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 
     .summary-row.discount span,
     .summary-row.discount strong {
-      color: #ff2525;
+      color: #ff5a5a;
     }
 
     .summary-row.total {
-      min-height: 14mm;
+      min-height: 13mm;
       border-bottom: 0;
       text-transform: uppercase;
       font-weight: 950;
@@ -521,154 +685,25 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       place-items: center end;
       background: #ffcb2f;
       color: #050505;
-      font-size: 8mm;
+      font-size: 7mm;
       letter-spacing: 1px;
       padding-right: 4mm;
     }
 
-    .bottom-sections {
-      display: grid;
-      grid-template-columns: .86fr 1.14fr;
-      gap: 6mm;
-      margin-top: 7mm;
-    }
-
-    .notes-box,
-    .condition-box {
-      min-height: 32mm;
-      padding: 4mm;
-    }
-
-    .notes-list {
-      margin: 0;
-      padding-left: 5mm;
-      color: #f2f2f2;
-      font-size: 3.2mm;
-      line-height: 1.45;
-    }
-
-    .condition-row {
-      display: grid;
-      grid-template-columns: 9mm 43mm 1fr;
-      align-items: center;
-      min-height: 12mm;
-      border-bottom: 1px solid rgba(255,255,255,.14);
-      font-size: 3.2mm;
-      color: #f1f1f1;
-      gap: 2mm;
-    }
-
-    .condition-row:last-child {
-      border-bottom: 0;
-    }
-
-    .condition-row .ico {
-      color: #fff;
-      font-size: 5mm;
-      text-align: center;
-    }
-
-    .condition-row strong {
-      color: #fff;
-    }
-
-    .footer-grid {
-      display: grid;
-      grid-template-columns: 1.25fr .95fr;
-      gap: 6mm;
-      margin-top: 4mm;
-    }
-
-    .signature-box {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      min-height: 31mm;
-      padding: 4mm;
-      gap: 6mm;
-    }
-
-    .signature-title {
-      color: #fff;
-      font-size: 3.4mm;
-      font-weight: 900;
-      text-align: center;
-    }
-
-    .signature-line {
-      margin: 10mm auto 2mm;
-      height: 1px;
-      width: 80%;
-      background: #fff;
-    }
-
-    .signature-name {
-      text-align: center;
-      font-size: 3.5mm;
-      font-weight: 900;
-    }
-
-    .signature-doc {
-      text-align: center;
-      color: #d8d8d8;
-      font-size: 2.8mm;
-      line-height: 1.25;
-    }
-
-    .signature-placeholder {
-      height: 12mm;
-      display: grid;
-      place-items: center;
-      color: #fff;
-      font-size: 7mm;
-      font-family: "Brush Script MT", cursive;
-    }
-
-    .thanks-box {
-      min-height: 31mm;
-      display: grid;
-      grid-template-columns: 13mm 1fr;
-      gap: 5mm;
-      padding: 4mm;
-      border-left: 1mm solid #ffcb2f;
-    }
-
-    .thanks-bolt {
-      color: #ffcb2f;
-      font-size: 13mm;
-      line-height: 1;
-    }
-
-    .thanks-text {
-      color: #f2f2f2;
-      font-size: 3.15mm;
-      line-height: 1.45;
-    }
-
-    .thanks-text strong {
-      display: block;
-      margin-top: 3mm;
-      color: #fff;
-      font-size: 3.6mm;
-    }
-
-    .thanks-text b {
-      color: #ffcb2f;
-    }
-
-    .security {
+    .signature-message {
       margin-top: 5mm;
       display: flex;
       align-items: center;
-      gap: 4mm;
+      gap: 3mm;
       color: #fff;
-      font-size: 3.5mm;
+      font-size: 3.3mm;
       text-transform: uppercase;
-      letter-spacing: .8px;
+      letter-spacing: .7px;
     }
 
-    .security .shield {
-      width: 10mm;
-      height: 10mm;
+    .signature-message .shield {
+      width: 9mm;
+      height: 9mm;
       border: 1px solid #ffcb2f;
       color: #ffcb2f;
       display: grid;
@@ -677,21 +712,134 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       font-weight: 900;
     }
 
-    .security b {
+    .signature-message b {
       color: #ffcb2f;
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5mm;
+      margin-top: 5mm;
+    }
+
+    .signature-box {
+      min-height: 52mm;
+      padding: 4mm;
+      border-color: rgba(255,203,47,.55);
+    }
+
+    .signature-box.client {
+      border-style: dashed;
+    }
+
+    .signature-title {
+      display: flex;
+      align-items: center;
+      gap: 2mm;
+      color: #ffcb2f;
+      font-size: 3.4mm;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: .7px;
+    }
+
+    .signature-visual {
+      height: 22mm;
+      display: grid;
+      place-items: center;
+      margin-top: 4mm;
+    }
+
+    .signature-visual img {
+      max-width: 100%;
+      max-height: 21mm;
+      object-fit: contain;
+    }
+
+    .signature-script {
+      font-family: "Brush Script MT", "Segoe Script", cursive;
+      font-size: 11mm;
+      line-height: 1;
+      color: #fff;
+      transform: rotate(-2deg);
+    }
+
+    .signature-visual.pending {
+      border: 1px dashed rgba(255,203,47,.55);
+      border-radius: 3mm;
+      height: 25mm;
+      text-align: center;
+      color: #ddd;
+      padding: 2mm;
+    }
+
+    .signature-visual.pending strong {
+      display: block;
+      font-size: 3.2mm;
+    }
+
+    .signature-visual.pending span {
+      display: block;
+      margin-top: 1mm;
+      color: #999;
+      font-size: 2.6mm;
+    }
+
+    .pending-icon {
+      color: #ffcb2f;
+      font-size: 6mm;
+      line-height: 1;
+    }
+
+    .signature-line {
+      margin: 3mm auto 2mm;
+      height: 1px;
+      width: 86%;
+      background: #fff;
+    }
+
+    .signature-name {
+      text-align: center;
+      font-size: 3.3mm;
+      font-weight: 950;
+      color: #fff;
+    }
+
+    .signature-doc {
+      text-align: center;
+      color: #d8d8d8;
+      font-size: 2.55mm;
+      line-height: 1.25;
+      margin-top: 1mm;
     }
 
     .site-bar {
       position: absolute;
-      bottom: 3.4mm;
-      right: 16mm;
+      bottom: 3.5mm;
+      left: 12mm;
       z-index: 3;
       color: #050505;
-      font-size: 3.7mm;
-      font-weight: 800;
+      font-size: 3.6mm;
+      font-weight: 900;
       display: flex;
       align-items: center;
-      gap: 4mm;
+      gap: 3mm;
+    }
+
+    .footer-slogan {
+      position: absolute;
+      right: 13mm;
+      bottom: 5mm;
+      z-index: 3;
+      color: #dcdcdc;
+      font-size: 3mm;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+    }
+
+    .footer-slogan b {
+      color: #ffcb2f;
     }
 
     @media print {
@@ -708,35 +856,38 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 
 <body>
   <main class="page">
-    <div class="diagonal"></div>
+    <div class="yellow-cut"></div>
     <div class="bottom-bar"></div>
 
     <div class="content">
       <header class="header">
         <div class="brand">
-          <div class="brand-mark">⚡</div>
-          <div class="brand-text">
-            <div class="brand-name">VOLT</div>
-            <div class="brand-sub">Soluções Elétricas</div>
+          <div class="logo-box">
+            <img src="${logoSrc}" alt="Volt Soluções Elétricas" />
+          </div>
+          <div class="brand-info">
+            <div class="brand-title">Volt Soluções Elétricas</div>
+            <div class="brand-sub">Proposta comercial</div>
             <div class="brand-slogan">Energia que conecta. Soluções que protegem.</div>
           </div>
         </div>
 
         <div class="company-contact">
           <div class="contact-line">
+            <span class="icon">📍</span>
+            <span>${safe(data.companyCity || "São Paulo / SP")}</span>
+          </div>
+          <div class="contact-line">
             <span class="icon">☎</span>
             <span>${safe(data.companyPhone || "(11) 98878-3401")}</span>
-            <span class="zap">⚡</span>
           </div>
           <div class="contact-line">
             <span class="icon">✉</span>
             <span>${safe(data.companyEmail || "solucoeseletricasvolt@gmail.com")}</span>
-            <span></span>
           </div>
           <div class="contact-line">
-            <span class="icon">●</span>
-            <span>${safe(data.companyCity || "São Paulo / SP")}</span>
-            <span></span>
+            <span class="icon">🌐</span>
+            <span>${safe(data.companyWebsite || "volt-solucoes-eletricas.vercel.app")}</span>
           </div>
         </div>
       </header>
@@ -775,14 +926,17 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
         </div>
 
         <aside class="budget-card">
-          <div class="budget-number">
-            <span>Orçamento nº</span>
-            <span class="code">${safe(data.number)}</span>
+          <div class="budget-head">
+            <div class="budget-icon">▤</div>
+            <div>
+              <div class="budget-label">Orçamento nº</div>
+              <div class="budget-code">${safe(data.number)}</div>
+            </div>
           </div>
 
           <div class="budget-row">
             <span class="icon">▣</span>
-            <strong>Data:</strong>
+            <strong>Data de emissão:</strong>
             <span class="value">${formatDate(data.date)}</span>
           </div>
 
@@ -792,12 +946,17 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
             <span class="value">${formatDate(data.validUntil)}</span>
           </div>
 
-          <div class="budget-row status">
+          <div class="budget-row">
             <span class="icon">▣</span>
             <strong>Status:</strong>
-            <span class="value">${safe(data.status)}</span>
+            <span class="value"><span class="status-pill">${safe(data.status)}</span></span>
           </div>
         </aside>
+      </section>
+
+      <section class="intro-box">
+        <b>⚡</b>
+        <span>Apresentamos abaixo nossa proposta comercial para execução dos serviços e fornecimento de materiais conforme escopo descrito.</span>
       </section>
 
       <section class="items-table">
@@ -812,32 +971,11 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
               <th style="width: 32mm;">Total</th>
             </tr>
           </thead>
-          <tbody>
-            ${itemsRows}
-          </tbody>
+          <tbody>${itemsRows}</tbody>
         </table>
       </section>
 
-      <section class="summary">
-        <div class="summary-row">
-          <span>Subtotal</span>
-          <strong>${brl(subtotal)}</strong>
-        </div>
-        <div class="summary-row">
-          <span>Mão de obra</span>
-          <strong>${brl(laborValue)}</strong>
-        </div>
-        <div class="summary-row discount">
-          <span>Desconto</span>
-          <strong>- ${brl(discountValue)}</strong>
-        </div>
-        <div class="summary-row total">
-          <span>Total final</span>
-          <strong>${brl(total)}</strong>
-        </div>
-      </section>
-
-      <section class="bottom-sections">
+      <section class="commercial-row">
         <div>
           <div class="section-title">
             <span class="square">▤</span>
@@ -851,21 +989,34 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
         </div>
 
         <div>
-          <div class="section-title">
-            <span class="square">🤝</span>
-            <span>Condições comerciais</span>
-            <span class="yellow-line"></span>
+          <div class="summary">
+            <div class="summary-row">
+              <span>Subtotal</span>
+              <strong>${brl(subtotal)}</strong>
+            </div>
+            <div class="summary-row">
+              <span>Mão de obra</span>
+              <strong>${brl(laborValue)}</strong>
+            </div>
+            <div class="summary-row discount">
+              <span>Desconto</span>
+              <strong>- ${brl(discountValue)}</strong>
+            </div>
+            <div class="summary-row total">
+              <span>Total geral</span>
+              <strong>${brl(total)}</strong>
+            </div>
           </div>
 
-          <div class="condition-box">
+          <div class="condition-box" style="margin-top: 4mm;">
             <div class="condition-row">
               <span class="ico">▭</span>
-              <strong>Condição de pagamento:</strong>
+              <strong>Pagamento:</strong>
               <span>${safe(data.paymentCondition)}</span>
             </div>
             <div class="condition-row">
               <span class="ico">▦</span>
-              <strong>Prazo de execução:</strong>
+              <strong>Prazo:</strong>
               <span>${safe(data.executionDeadline)}</span>
             </div>
             <div class="condition-row">
@@ -877,42 +1028,32 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
         </div>
       </section>
 
+      <div class="signature-message">
+        <span class="shield">✓</span>
+        <span>Segurança em cada detalhe. <b>Energia para o que realmente importa.</b></span>
+      </div>
+
       <section class="footer-grid">
         <div class="signature-box">
-          <div>
-            <div class="signature-title">Responsável Técnico</div>
-            <div class="signature-placeholder">${safe(data.responsibleName).split(" ").slice(0, 2).join(" ")}</div>
-            <div class="signature-line"></div>
-            <div class="signature-name">${safe(data.responsibleName)}</div>
-            <div class="signature-doc">${safe(data.responsibleDocument)}<br />${safe(data.responsibleRole || "Responsável técnico")}</div>
-          </div>
-
-          <div>
-            <div class="signature-title">Cliente</div>
-            <div class="signature-line"></div>
-            <div class="signature-doc">Assinatura e carimbo</div>
-          </div>
+          <div class="signature-title">⚡ Responsável técnico</div>
+          ${signatureVisual(data.responsibleSignature, data.responsibleName, false)}
+          <div class="signature-doc">${safe(data.responsibleDocument)}<br />${safe(data.responsibleRole || "Responsável técnico")}</div>
         </div>
 
-        <div class="thanks-box">
-          <div class="thanks-bolt">⚡</div>
-          <div class="thanks-text">
-            A Volt Soluções Elétricas agradece a oportunidade e se coloca à disposição para quaisquer esclarecimentos.
-            <strong>Volt Soluções Elétricas</strong>
-            <b>Segurança. Qualidade. Confiança.</b>
-          </div>
+        <div class="signature-box client">
+          <div class="signature-title">👤 Cliente</div>
+          ${signatureVisual(data.clientSignature, data.clientName || "Cliente", true)}
         </div>
       </section>
-
-      <div class="security">
-        <span class="shield">✓</span>
-        <span>Segurança em cada detalhe<br /><b>Energia para o que realmente importa.</b></span>
-      </div>
     </div>
 
     <div class="site-bar">
       <span>🌐</span>
-      <span>${safe(data.companyWebsite || "www.voltsolucoeseletricas.com.br")}</span>
+      <span>${safe(data.companyWebsite || "volt-solucoes-eletricas.vercel.app")}</span>
+    </div>
+
+    <div class="footer-slogan">
+      <b>⚡</b> Energia que conecta. Soluções que protegem.
     </div>
   </main>
 </body>
@@ -936,5 +1077,5 @@ export function openOrcamentoPdf(data: OrcamentoPdfData) {
 
   setTimeout(() => {
     popup.print();
-  }, 500);
+  }, 700);
 }
