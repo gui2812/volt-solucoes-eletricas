@@ -230,7 +230,7 @@ const quotesSeed: Quote[] = [
   }
 ];
 
-const tabs = ["Visão Geral", "Lista de Cotações", "Nova Cotação", "Pipeline Comercial", "Modelos de Proposta", "Itens e Serviços", "Aprovações", "Relatórios"];
+const tabs = ["Visão Geral", "Lista de Orçamentos", "Novo Orçamento", "Pipeline Comercial", "Modelos de Proposta", "Itens e Serviços", "Aprovações", "Relatórios"];
 const pipelineColumns: QuoteStatus[] = ["Rascunho", "Enviada", "Aguardando retorno", "Em negociação", "Aprovada", "Recusada", "Vencida", "Convertida em OS"];
 
 const statusColors: Record<QuoteStatus, string> = {
@@ -364,7 +364,7 @@ function DonutStatus({ quotes }: { quotes: Quote[] }) {
           <div className="grid h-28 w-28 place-items-center rounded-full border border-white/10 bg-[#090d12] text-center">
             <div>
               <p className="text-3xl font-black text-volt-yellow">{quotes.length}</p>
-              <p className="text-xs font-bold text-zinc-500">cotações</p>
+              <p className="text-xs font-bold text-zinc-500">orçamentos</p>
             </div>
           </div>
         </div>
@@ -393,7 +393,7 @@ export default function CotacoesPage() {
   const [selected, setSelected] = useState<Quote | null>(quotesSeed[0]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [draft, setDraft] = useState<EditableRecord | null>(null);
+  const [draft, setDraft] = useState<Quote | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
 
@@ -425,37 +425,209 @@ export default function CotacoesPage() {
 
   function openEditor(item: Quote) {
     setEditingKey(getRecordKey(item));
-    setDraft({ ...item } as unknown as EditableRecord);
+    setDraft({ ...item });
     setEditOpen(true);
   }
 
   function saveEditor() {
     if (!draft) return;
-    const next = draft as unknown as Quote;
-    setQuotes((current) => current.map((item) => getRecordKey(item) === editingKey ? next : item));
+
+    const next = {
+      ...draft,
+      history: draft.history.length ? draft.history : ["Orçamento criado"]
+    };
+
+    setQuotes((current) => {
+      const exists = current.some((item) => getRecordKey(item) === getRecordKey(next));
+
+      if (editingKey || exists) {
+        return current.map((item) => getRecordKey(item) === getRecordKey(next) ? next : item);
+      }
+
+      return [next, ...current];
+    });
+
     setSelected(next);
     setEditOpen(false);
+    setModalOpen(true);
   }
 
   function duplicateSelected() {
     if (!selected) return;
-    const copy: Quote = { ...selected, id: `COT-${230 + quotes.length + 1}`, title: `${selected.title} cópia` };
-    setQuotes((current) => [copy, ...current]);
+    const copy: Quote = {
+      ...selected,
+      id: `ORC-${String(Date.now()).slice(-5)}`,
+      title: `${selected.title} cópia`,
+      status: "Rascunho",
+      os: "Sem OS",
+      history: [...selected.history, "Orçamento duplicado"]
+    };
     setSelected(copy);
-    setEditingKey(getRecordKey(copy));
-    setDraft({ ...copy } as unknown as EditableRecord);
+    setEditingKey(null);
+    setDraft({ ...copy });
+    setModalOpen(false);
+    setActiveTab("Novo Orçamento");
     setEditOpen(true);
   }
 
   function removeSelected() {
     if (!selected) return;
-    if (!window.confirm("Excluir este registro?")) return;
+    if (!window.confirm("Excluir este orçamento?")) return;
     setQuotes((current) => current.filter((item) => getRecordKey(item) !== getRecordKey(selected)));
     setSelected(null);
     setModalOpen(false);
     setEditOpen(false);
   }
 
+  function quoteWhatsAppLink(quote: Quote) {
+    const phone = quote.phone.replace(/\D/g, "");
+    const total = currency(quoteTotal(quote));
+    const items = quote.items.map((item) => `• ${item.description}: ${currency(item.quantity * item.unitPrice * (1 - item.discount / 100))}`).join("\n");
+
+    const message = [
+      `Olá, ${quote.contact || quote.client}! Tudo bem?`,
+      "",
+      `Segue o orçamento da Volt Soluções Elétricas:`,
+      `*${quote.title}*`,
+      "",
+      items,
+      "",
+      `*Valor total:* ${total}`,
+      `*Validade:* ${quote.validUntil}`,
+      `*Prazo:* ${quote.deadline}`,
+      `*Garantia:* ${quote.warranty}`,
+      "",
+      quote.notes ? `Observações: ${quote.notes}` : ""
+    ].filter(Boolean).join("\n");
+
+    return `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
+  }
+
+  function openQuotePdf(quote: Quote) {
+    const popup = window.open("", "_blank");
+
+    if (!popup) {
+      alert("Permita pop-ups para gerar o PDF do orçamento.");
+      return;
+    }
+
+    const itemsRows = quote.items.map((item) => {
+      const total = item.quantity * item.unitPrice * (1 - item.discount / 100);
+      return `
+        <tr>
+          <td>${item.kind}</td>
+          <td>${item.description}</td>
+          <td>${item.quantity} ${item.unit}</td>
+          <td>${currency(item.unitPrice)}</td>
+          <td>${item.discount}%</td>
+          <td>${currency(total)}</td>
+        </tr>
+      `;
+    }).join("");
+
+    const html = `
+      <!doctype html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <title>Orçamento ${quote.id} - Volt Soluções Elétricas</title>
+          <style>
+            body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #171717; background: #fff; }
+            .page { padding: 34px; }
+            .cover { background: #050505; color: white; padding: 28px; border-radius: 18px; margin-bottom: 24px; border-left: 10px solid #ffcb2f; }
+            .brand { color: #ffcb2f; font-size: 12px; letter-spacing: 3px; font-weight: 900; text-transform: uppercase; }
+            h1 { margin: 8px 0 4px; font-size: 30px; }
+            h2 { margin: 26px 0 10px; font-size: 18px; border-bottom: 2px solid #ffcb2f; padding-bottom: 8px; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .box { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+            .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #777; font-weight: 800; }
+            .value { margin-top: 4px; font-weight: 800; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+            th { background: #050505; color: #ffcb2f; padding: 9px; text-align: left; }
+            td { border: 1px solid #ddd; padding: 9px; vertical-align: top; }
+            .total { margin-top: 18px; text-align: right; font-size: 24px; font-weight: 900; }
+            .footer { margin-top: 28px; color: #666; font-size: 11px; line-height: 1.6; }
+          </style>
+        </head>
+        <body>
+          <main class="page">
+            <section class="cover">
+              <div class="brand">Volt Soluções Elétricas</div>
+              <h1>Orçamento ${quote.id}</h1>
+              <p>${quote.title}</p>
+            </section>
+
+            <h2>Dados do cliente</h2>
+            <section class="grid">
+              <div class="box"><div class="label">Cliente</div><div class="value">${quote.client || "-"}</div></div>
+              <div class="box"><div class="label">Contato</div><div class="value">${quote.contact || "-"}</div></div>
+              <div class="box"><div class="label">Telefone</div><div class="value">${quote.phone || "-"}</div></div>
+              <div class="box"><div class="label">E-mail</div><div class="value">${quote.email || "-"}</div></div>
+              <div class="box"><div class="label">Endereço</div><div class="value">${quote.address || "-"}</div></div>
+              <div class="box"><div class="label">Serviço</div><div class="value">${quote.serviceType}</div></div>
+            </section>
+
+            <h2>Condições comerciais</h2>
+            <section class="grid">
+              <div class="box"><div class="label">Validade</div><div class="value">${quote.validUntil}</div></div>
+              <div class="box"><div class="label">Pagamento</div><div class="value">${quote.payment}</div></div>
+              <div class="box"><div class="label">Garantia</div><div class="value">${quote.warranty}</div></div>
+              <div class="box"><div class="label">Prazo</div><div class="value">${quote.deadline}</div></div>
+            </section>
+
+            <h2>Itens do orçamento</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Descrição</th>
+                  <th>Qtd</th>
+                  <th>Valor unit.</th>
+                  <th>Desc.</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>${itemsRows}</tbody>
+            </table>
+
+            <div class="total">Total: ${currency(quoteTotal(quote))}</div>
+
+            <h2>Observações</h2>
+            <p>${quote.notes || "Sem observações adicionais."}</p>
+
+            <div class="footer">
+              Responsável: ${quote.responsible || "Volt Soluções Elétricas"}<br />
+              Este orçamento é válido até ${quote.validUntil}. Valores sujeitos à alteração em caso de mudança de escopo ou materiais.
+            </div>
+          </main>
+        </body>
+      </html>
+    `;
+
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+    popup.focus();
+    setTimeout(() => popup.print(), 500);
+  }
+
+  function convertQuoteToOs(id: string) {
+    const osNumber = `OS-${String(Date.now()).slice(-5)}`;
+
+    setQuotes((current) => current.map((item) => {
+      if (item.id !== id) return item;
+
+      const updated: Quote = {
+        ...item,
+        status: "Convertida em OS",
+        os: osNumber,
+        history: [...item.history, `Convertida em ${osNumber}`]
+      };
+
+      setSelected(updated);
+      return updated;
+    }));
+  }
 
   const filtered = useMemo(() => {
     return quotes.filter((item) => {
@@ -483,17 +655,20 @@ export default function CotacoesPage() {
   }, [filtered]);
 
   function createQuote() {
+    const today = new Date().toISOString().slice(0, 10);
+    const validUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
     const next: Quote = {
-      id: `COT-${230 + quotes.length + 1}`,
-      client: "Novo cliente",
-      contact: "Contato principal",
-      phone: "(11) 99999-9999",
-      email: "cliente@email.com",
-      address: "São Paulo/SP",
+      id: `ORC-${String(Date.now()).slice(-5)}`,
+      client: "",
+      contact: "",
+      phone: "",
+      email: "",
+      address: "",
       serviceType: "Instalação elétrica",
-      title: "Nova cotação técnica",
-      createdAt: "2026-06-30",
-      validUntil: "2026-07-07",
+      title: "Novo orçamento",
+      createdAt: today,
+      validUntil,
       responsible: "Guilherme Santana",
       status: "Rascunho",
       chance: 35,
@@ -503,16 +678,17 @@ export default function CotacoesPage() {
       deadline: "A definir",
       os: "Sem OS",
       items: [
-        { kind: "Serviço", code: "SRV-NEW", description: "Serviço técnico", unit: "serv.", quantity: 1, unitPrice: 0, unitCost: 0, discount: 0 }
+        { kind: "Serviço", code: "SRV-001", description: "Mão de obra / serviço técnico", unit: "serv.", quantity: 1, unitPrice: 0, unitCost: 0, discount: 0 }
       ],
-      history: ["Cotação criada"],
-      notes: "Editar dados da proposta."
+      history: ["Orçamento criado"],
+      notes: ""
     };
-    setQuotes((current) => [next, ...current]);
+
     setSelected(next);
-    setEditingKey(getRecordKey(next));
-    setDraft({ ...next } as unknown as EditableRecord);
+    setEditingKey(null);
+    setDraft({ ...next });
     setModalOpen(false);
+    setActiveTab("Novo Orçamento");
     setEditOpen(true);
   }
 
@@ -521,14 +697,14 @@ export default function CotacoesPage() {
   }
 
   function exportCsv() {
-    const header = ["Cotação", "Cliente", "Serviço", "Status", "Valor", "Validade", "Responsável", "Chance"];
+    const header = ["Orçamento", "Cliente", "Serviço", "Status", "Valor", "Validade", "Responsável", "Chance"];
     const rows = filtered.map((item) => [item.id, item.client, item.serviceType, item.status, quoteTotal(item), item.validUntil, item.responsible, `${item.chance}%`]);
     const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "cotacoes-volt.csv";
+    link.download = "orcamentos-volt.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -542,15 +718,15 @@ export default function CotacoesPage() {
           <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-volt-yellow/20 blur-[130px]" />
           <div className="relative z-10 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Propostas comerciais</p>
-              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Cotações</h1>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Orçamentos comerciais</p>
+              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Orçamentos</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
                 Orçamentos, propostas, itens, materiais, margem, aprovação, conversão para OS e lançamento financeiro em um módulo comercial completo.
               </p>
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
-              <button onClick={createQuote} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Nova cotação</button>
+              <button onClick={createQuote} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Novo orçamento</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
               <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
             </div>
@@ -561,7 +737,7 @@ export default function CotacoesPage() {
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_.7fr_.7fr]">
             <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
               <Search size={17} className="text-volt-yellow" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, número da cotação, serviço ou observação..." className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-600" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, número do orçamento, serviço ou observação..." className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-600" />
             </div>
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
               {["Todos", ...pipelineColumns, "Visualizada"].map((status) => <option key={status}>{status}</option>)}
@@ -574,7 +750,7 @@ export default function CotacoesPage() {
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
           {[
-            ["Total", filtered.length, ClipboardCheck, "text-volt-yellow", "cotações"],
+            ["Total", filtered.length, ClipboardCheck, "text-volt-yellow", "orçamentos"],
             ["Abertas", stats.waiting.length, Send, "text-blue-300", currency(stats.waitingValue)],
             ["Aprovadas", stats.approved.length, CheckCircle2, "text-volt-ok", currency(stats.approvedValue)],
             ["Recusadas", stats.refused.length, AlertTriangle, "text-red-300", currency(stats.lostValue)],
@@ -618,7 +794,7 @@ export default function CotacoesPage() {
 
             <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Cotações recentes</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Orçamentos recentes</p>
                 <div className="mt-5 space-y-3">
                   {filtered.slice(0, 5).map((quote) => (
                     <button key={quote.id} onClick={() => { setSelected(quote); setModalOpen(true); }} className="w-full rounded-3xl border border-white/10 bg-white/[.035] p-4 text-left transition hover:border-volt-yellow/30">
@@ -644,7 +820,7 @@ export default function CotacoesPage() {
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Alertas comerciais</p>
                 <div className="mt-5 space-y-3">
-                  {["Cotações vencidas precisam de follow-up.", "Propostas aprovadas devem virar OS.", "Verificar materiais sem estoque antes da aprovação.", "Negociações de alto valor devem ter nova revisão controlada."].map((alert) => (
+                  {["Orçamentos vencidos precisam de follow-up.", "Propostas aprovadas devem virar OS.", "Verificar materiais sem estoque antes da aprovação.", "Negociações de alto valor devem ter nova revisão controlada."].map((alert) => (
                     <div key={alert} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3">
                       <AlertTriangle className="shrink-0 text-volt-yellow" size={18} />
                       <p className="text-sm leading-6 text-zinc-300">{alert}</p>
@@ -656,7 +832,7 @@ export default function CotacoesPage() {
           </>
         )}
 
-        {activeTab === "Lista de Cotações" && (
+        {activeTab === "Lista de Orçamentos" && (
           <section className="card-premium rounded-[2rem] p-5 md:p-6">
             <div className="mb-6 flex items-center justify-between">
               <div>
@@ -670,7 +846,7 @@ export default function CotacoesPage() {
               <table className="w-full min-w-[1120px] border-separate border-spacing-y-2">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-[.16em] text-zinc-600">
-                    <th className="px-4 py-2">Cotação</th>
+                    <th className="px-4 py-2">Orçamento</th>
                     <th className="px-4 py-2">Cliente</th>
                     <th className="px-4 py-2">Serviço</th>
                     <th className="px-4 py-2">Validade</th>
@@ -701,17 +877,24 @@ export default function CotacoesPage() {
           </section>
         )}
 
-        {activeTab === "Nova Cotação" && (
+        {activeTab === "Novo Orçamento" && (
           <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
             <div className="card-premium rounded-[2rem] p-5 md:p-6">
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Cadastro de cotação</p>
-              <h2 className="mt-1 text-2xl font-black">Estrutura profissional da proposta</h2>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Cadastro de orçamento</p>
+              <h2 className="mt-1 text-2xl font-black">Crie um orçamento de verdade</h2>
+              <p className="mt-3 text-sm leading-7 text-zinc-400">
+                Clique no botão abaixo para abrir o formulário completo com cliente, serviço, itens, materiais, mão de obra, desconto, garantia, prazo e pagamento.
+              </p>
+
+              <button onClick={createQuote} className="btn-primary mt-6 inline-flex items-center gap-2">
+                <Plus size={17} /> Novo orçamento
+              </button>
 
               <div className="mt-6 grid gap-3 md:grid-cols-2">
-                {["Cliente", "Contato", "WhatsApp", "E-mail", "Endereço", "Tipo de serviço", "Validade", "Responsável", "Prioridade", "Forma de pagamento", "Garantia", "Prazo de execução"].map((field) => (
+                {["Dados do cliente", "Descrição do serviço", "Itens e materiais", "Mão de obra", "Deslocamento", "Desconto", "Validade", "Pagamento", "Garantia", "Prazo", "PDF", "WhatsApp"].map((field) => (
                   <div key={field} className="rounded-2xl border border-white/10 bg-black/35 p-4">
                     <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{field}</p>
-                    <p className="mt-2 text-sm font-bold text-zinc-300">Campo preparado para edição</p>
+                    <p className="mt-2 text-sm font-bold text-zinc-300">Disponível no formulário</p>
                   </div>
                 ))}
               </div>
@@ -719,23 +902,23 @@ export default function CotacoesPage() {
 
             <div className="space-y-5">
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Simulador de preço</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Como usar</p>
                 {[
-                  ["Custo real", currency(780)],
-                  ["Valor sugerido", currency(1600)],
-                  ["Menor aceitável", currency(1350)],
-                  ["Lucro previsto", currency(820)],
-                  ["Margem", "51%"]
-                ].map(([label, value]) => (
-                  <div key={label} className="mt-3 flex justify-between rounded-2xl border border-white/10 bg-white/[.035] p-3 text-sm">
-                    <span className="text-zinc-500">{label}</span>
-                    <strong className="text-volt-yellow">{value}</strong>
+                  ["1", "Clique em Novo orçamento"],
+                  ["2", "Preencha cliente, serviço e endereço"],
+                  ["3", "Adicione itens de serviço, material e mão de obra"],
+                  ["4", "Confira total, custo, lucro e margem"],
+                  ["5", "Salve, gere PDF, envie pelo WhatsApp ou converta em OS"]
+                ].map(([number, text]) => (
+                  <div key={number} className="mt-3 flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3 text-sm">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-volt-yellow text-xs font-black text-black">{number}</span>
+                    <strong className="text-zinc-300">{text}</strong>
                   </div>
                 ))}
               </div>
 
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Integrações</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Integrações preparadas</p>
                 <div className="mt-4 space-y-3">
                   {["Criar cliente rápido", "Reservar materiais", "Converter em OS", "Lançar no financeiro", "Agendar execução"].map((item) => (
                     <div key={item} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3">
@@ -798,7 +981,7 @@ export default function CotacoesPage() {
         {activeTab === "Itens e Serviços" && (
           <section className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
             <div className="card-premium rounded-[2rem] p-5 md:p-6">
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Itens da cotação</p>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Itens do orçamento</p>
               <div className="mt-5 space-y-3">
                 {filtered.flatMap((quote) => quote.items.map((item) => ({ quote, item }))).slice(0, 10).map(({ quote, item }) => {
                   const total = item.quantity * item.unitPrice * (1 - item.discount / 100);
@@ -862,13 +1045,13 @@ export default function CotacoesPage() {
         {activeTab === "Relatórios" && (
           <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
             <div className="card-premium rounded-[2rem] p-5 md:p-6">
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Relatórios de cotações</p>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Relatórios de orçamentos</p>
               <h2 className="mt-2 text-3xl font-black">Comercial executivo</h2>
               <p className="mt-3 text-sm leading-7 text-zinc-400">
-                Gere relatórios de cotações aprovadas, recusadas, vencidas, por cliente, por responsável, conversão comercial e proposta completa.
+                Gere relatórios de orçamentos aprovados, recusados, vencidos, por cliente, por responsável, conversão comercial e proposta completa.
               </p>
               <div className="mt-6 grid gap-3 md:grid-cols-2">
-                {["Geral de cotações", "Cotações aprovadas", "Cotações recusadas", "Cotações vencidas", "Por cliente", "Por responsável", "Conversão comercial", "Completo executivo"].map((item) => (
+                {["Geral de orçamentos", "Orçamentos aprovados", "Orçamentos recusados", "Orçamentos vencidos", "Por cliente", "Por responsável", "Conversão comercial", "Completo executivo"].map((item) => (
                   <div key={item} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 font-bold text-zinc-300">{item}</div>
                 ))}
               </div>
@@ -904,8 +1087,9 @@ export default function CotacoesPage() {
                   <p className="mt-2 text-sm text-zinc-500">{selected.id} • {selected.client}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <a href={`https://wa.me/55${selected.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
-                  <button onClick={() => window.print()} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF</button>
+                  <a href={quoteWhatsAppLink(selected)} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
+                  <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF</button>
+                  <button onClick={() => convertQuoteToOs(selected.id)} className="btn-ghost">Converter em OS</button>
                   <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
                   <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
                   <button onClick={removeSelected} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
@@ -979,12 +1163,14 @@ export default function CotacoesPage() {
         )}
 
         {editOpen && draft && (
-          <EditableRecordModal
-            title={editingKey ? "Editar registro" : "Novo registro"}
+          <QuoteEditorModal
+            title={editingKey ? "Editar orçamento" : "Novo orçamento"}
             draft={draft}
             setDraft={setDraft}
             onSave={saveEditor}
             onCancel={() => setEditOpen(false)}
+            onPdf={() => openQuotePdf(draft)}
+            whatsappLink={quoteWhatsAppLink(draft)}
           />
         )}
       </div>
@@ -993,112 +1179,335 @@ export default function CotacoesPage() {
 }
 
 
-type EditableRecord = Record<string, unknown>;
 
-function EditableRecordModal({
+function QuoteEditorModal({
   title,
   draft,
   setDraft,
   onSave,
-  onCancel
+  onCancel,
+  onPdf,
+  whatsappLink
 }: {
   title: string;
-  draft: EditableRecord;
-  setDraft: (value: EditableRecord) => void;
+  draft: Quote;
+  setDraft: React.Dispatch<React.SetStateAction<Quote | null>>;
   onSave: () => void;
   onCancel: () => void;
+  onPdf: () => void;
+  whatsappLink: string;
 }) {
-  function fieldValue(value: unknown) {
-    if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-      return JSON.stringify(value, null, 2);
-    }
-
-    return String(value ?? "");
+  function updateQuote<K extends keyof Quote>(key: K, value: Quote[K]) {
+    setDraft((current) => current ? { ...current, [key]: value } : current);
   }
 
-  function parseValue(oldValue: unknown, raw: string) {
-    if (typeof oldValue === "number") return Number(raw.replace(",", ".")) || 0;
-    if (typeof oldValue === "boolean") return raw === "true";
-
-    if (Array.isArray(oldValue) || (typeof oldValue === "object" && oldValue !== null)) {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw.split(",").map((item) => item.trim()).filter(Boolean);
-      }
-    }
-
-    return raw;
-  }
-
-  function updateField(key: string, raw: string) {
-    setDraft({
-      ...draft,
-      [key]: parseValue(draft[key], raw)
+  function updateItem<K extends keyof QuoteItem>(index: number, key: K, value: QuoteItem[K]) {
+    setDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item)
+      };
     });
   }
 
+  function addItem(kind: QuoteItem["kind"] = "Serviço") {
+    setDraft((current) => {
+      if (!current) return current;
+
+      const nextItem: QuoteItem = {
+        kind,
+        code: `${kind.slice(0, 3).toUpperCase()}-${String(current.items.length + 1).padStart(3, "0")}`,
+        description: kind === "Material" ? "Novo material" : kind === "Mão de obra" ? "Mão de obra" : "Novo serviço",
+        unit: kind === "Mão de obra" ? "h" : kind === "Material" ? "un" : "serv.",
+        quantity: 1,
+        unitPrice: 0,
+        unitCost: 0,
+        discount: 0
+      };
+
+      return { ...current, items: [...current.items, nextItem] };
+    });
+  }
+
+  function removeItem(index: number) {
+    setDraft((current) => {
+      if (!current) return current;
+      return { ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) };
+    });
+  }
+
+  function updateHistory(raw: string) {
+    updateQuote("history", raw.split("\n").map((item) => item.trim()).filter(Boolean));
+  }
+
+  const total = quoteTotal(draft);
+  const cost = quoteCost(draft);
+  const profit = total - cost;
+  const margin = total > 0 ? Math.round((profit / total) * 100) : 0;
+
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="volt-scroll max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-7xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
         <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
           <div>
-            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Edição funcional</p>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Orçamento funcional</p>
             <h2 className="mt-2 text-3xl font-black">{title}</h2>
             <p className="mt-2 text-sm leading-6 text-zinc-500">
-              Edite os dados, salve e a alteração ficará gravada no navegador.
+              Preencha o orçamento sem JSON. Os itens calculam total, custo, lucro e margem automaticamente.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <a href={whatsappLink} target="_blank" rel="noreferrer" className="btn-ghost inline-flex items-center gap-2">
+              <MessageCircle size={17} /> WhatsApp
+            </a>
+            <button onClick={onPdf} className="btn-ghost inline-flex items-center gap-2">
+              <FileText size={17} /> PDF
+            </button>
             <button onClick={onCancel} className="btn-ghost">Cancelar</button>
-            <button onClick={onSave} className="btn-primary">Salvar alterações</button>
+            <button onClick={onSave} className="btn-primary">Salvar orçamento</button>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          {Object.entries(draft).map(([key, value]) => {
-            const isLong = Array.isArray(value) || (typeof value === "object" && value !== null) || key.toLowerCase().includes("notes") || key.toLowerCase().includes("observ");
+        <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_.42fr]">
+          <div className="space-y-5">
+            <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Dados do cliente</p>
 
-            return (
-              <div key={key} className={`rounded-2xl border border-white/10 bg-white/[.035] p-4 ${isLong ? "md:col-span-2" : ""}`}>
-                <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{key}</label>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <EditorField label="Número do orçamento">
+                  <input value={draft.id} onChange={(event) => updateQuote("id", event.target.value)} className="field-input" />
+                </EditorField>
 
-                {typeof value === "boolean" ? (
-                  <select
-                    value={value ? "true" : "false"}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  >
-                    <option value="true">Sim</option>
-                    <option value="false">Não</option>
+                <EditorField label="Status">
+                  <select value={draft.status} onChange={(event) => updateQuote("status", event.target.value as QuoteStatus)} className="field-input">
+                    {pipelineColumns.concat("Visualizada").map((status) => <option key={status}>{status}</option>)}
                   </select>
-                ) : isLong ? (
-                  <textarea
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    rows={5}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                ) : (
-                  <input
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    type={typeof value === "number" ? "number" : "text"}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
+                </EditorField>
 
-        <div className="mt-6 flex justify-end gap-2 border-t border-white/10 pt-5">
-          <button onClick={onCancel} className="btn-ghost">Cancelar</button>
-          <button onClick={onSave} className="btn-primary">Salvar alterações</button>
+                <EditorField label="Cliente">
+                  <input value={draft.client} onChange={(event) => updateQuote("client", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Contato">
+                  <input value={draft.contact} onChange={(event) => updateQuote("contact", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="WhatsApp">
+                  <input value={draft.phone} onChange={(event) => updateQuote("phone", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="E-mail">
+                  <input value={draft.email} onChange={(event) => updateQuote("email", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Endereço" full>
+                  <input value={draft.address} onChange={(event) => updateQuote("address", event.target.value)} className="field-input" />
+                </EditorField>
+              </div>
+            </section>
+
+            <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Dados do serviço</p>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <EditorField label="Nome do serviço" full>
+                  <input value={draft.title} onChange={(event) => updateQuote("title", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Tipo de serviço">
+                  <input value={draft.serviceType} onChange={(event) => updateQuote("serviceType", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Prioridade">
+                  <select value={draft.priority} onChange={(event) => updateQuote("priority", event.target.value as Quote["priority"])} className="field-input">
+                    {["Baixa", "Média", "Alta", "Urgente"].map((priority) => <option key={priority}>{priority}</option>)}
+                  </select>
+                </EditorField>
+
+                <EditorField label="Data de criação">
+                  <input type="date" value={draft.createdAt} onChange={(event) => updateQuote("createdAt", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Validade">
+                  <input type="date" value={draft.validUntil} onChange={(event) => updateQuote("validUntil", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Responsável">
+                  <input value={draft.responsible} onChange={(event) => updateQuote("responsible", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Chance de fechamento (%)">
+                  <input type="number" value={draft.chance} onChange={(event) => updateQuote("chance", Number(event.target.value))} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Forma de pagamento">
+                  <input value={draft.payment} onChange={(event) => updateQuote("payment", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Garantia">
+                  <input value={draft.warranty} onChange={(event) => updateQuote("warranty", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Prazo de execução">
+                  <input value={draft.deadline} onChange={(event) => updateQuote("deadline", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="OS vinculada">
+                  <input value={draft.os} onChange={(event) => updateQuote("os", event.target.value)} className="field-input" />
+                </EditorField>
+
+                <EditorField label="Observações" full>
+                  <textarea value={draft.notes} onChange={(event) => updateQuote("notes", event.target.value)} rows={4} className="field-input" />
+                </EditorField>
+              </div>
+            </section>
+
+            <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+              <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Itens do orçamento</p>
+                  <h3 className="mt-1 text-xl font-black">Serviços, materiais e mão de obra</h3>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => addItem("Serviço")} className="btn-ghost inline-flex items-center gap-2"><Plus size={16} /> Serviço</button>
+                  <button onClick={() => addItem("Material")} className="btn-ghost inline-flex items-center gap-2"><Plus size={16} /> Material</button>
+                  <button onClick={() => addItem("Mão de obra")} className="btn-ghost inline-flex items-center gap-2"><Plus size={16} /> Mão de obra</button>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {draft.items.map((item, index) => {
+                  const itemTotal = item.quantity * item.unitPrice * (1 - item.discount / 100);
+                  const itemCost = item.quantity * item.unitCost;
+
+                  return (
+                    <div key={`${item.code}-${index}`} className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                      <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                        <div>
+                          <Badge className="bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25">{item.kind}</Badge>
+                          <p className="mt-2 text-sm text-zinc-500">Item {index + 1}</p>
+                        </div>
+
+                        <button onClick={() => removeItem(index)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-black text-red-200">
+                          Remover
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-6">
+                        <EditorField label="Tipo">
+                          <select value={item.kind} onChange={(event) => updateItem(index, "kind", event.target.value as QuoteItem["kind"])} className="field-input">
+                            {["Serviço", "Material", "Mão de obra", "Deslocamento", "Taxa"].map((kind) => <option key={kind}>{kind}</option>)}
+                          </select>
+                        </EditorField>
+
+                        <EditorField label="Código">
+                          <input value={item.code} onChange={(event) => updateItem(index, "code", event.target.value)} className="field-input" />
+                        </EditorField>
+
+                        <EditorField label="Descrição" full>
+                          <input value={item.description} onChange={(event) => updateItem(index, "description", event.target.value)} className="field-input" />
+                        </EditorField>
+
+                        <EditorField label="Unidade">
+                          <input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} className="field-input" />
+                        </EditorField>
+
+                        <EditorField label="Qtd">
+                          <input type="number" value={item.quantity} onChange={(event) => updateItem(index, "quantity", Number(event.target.value))} className="field-input" />
+                        </EditorField>
+
+                        <EditorField label="Valor unit.">
+                          <input type="number" value={item.unitPrice} onChange={(event) => updateItem(index, "unitPrice", Number(event.target.value))} className="field-input" />
+                        </EditorField>
+
+                        <EditorField label="Custo unit.">
+                          <input type="number" value={item.unitCost} onChange={(event) => updateItem(index, "unitCost", Number(event.target.value))} className="field-input" />
+                        </EditorField>
+
+                        <EditorField label="Desconto %">
+                          <input type="number" value={item.discount} onChange={(event) => updateItem(index, "discount", Number(event.target.value))} className="field-input" />
+                        </EditorField>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3">
+                          <p className="text-xs text-zinc-500">Total do item</p>
+                          <p className="mt-1 font-black text-volt-yellow">{currency(itemTotal)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3">
+                          <p className="text-xs text-zinc-500">Custo do item</p>
+                          <p className="mt-1 font-black text-zinc-300">{currency(itemCost)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3">
+                          <p className="text-xs text-zinc-500">Lucro do item</p>
+                          <p className="mt-1 font-black text-volt-ok">{currency(itemTotal - itemCost)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Histórico</p>
+              <textarea
+                value={draft.history.join("\n")}
+                onChange={(event) => updateHistory(event.target.value)}
+                rows={4}
+                className="mt-4 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+              />
+              <p className="mt-2 text-xs text-zinc-600">Um registro por linha.</p>
+            </section>
+          </div>
+
+          <aside className="space-y-5">
+            <section className="sticky top-24 rounded-[2rem] border border-volt-yellow/20 bg-volt-yellow/10 p-5">
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Resumo do orçamento</p>
+
+              <div className="mt-5 space-y-3">
+                {[
+                  ["Valor total", currency(total), "text-volt-yellow"],
+                  ["Custo real", currency(cost), "text-zinc-300"],
+                  ["Lucro previsto", currency(profit), profit >= 0 ? "text-volt-ok" : "text-red-300"],
+                  ["Margem", `${margin}%`, margin >= 30 ? "text-volt-ok" : "text-volt-yellow"],
+                  ["Itens", draft.items.length, "text-zinc-300"],
+                  ["Status", draft.status, "text-zinc-300"]
+                ].map(([label, value, color]) => (
+                  <div key={String(label)} className="flex justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-sm">
+                    <span className="text-zinc-500">{label}</span>
+                    <strong className={String(color)}>{String(value)}</strong>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 grid gap-2">
+                <button onClick={onSave} className="btn-primary">Salvar orçamento</button>
+                <button onClick={onPdf} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Gerar PDF</button>
+                <a href={whatsappLink} target="_blank" rel="noreferrer" className="btn-ghost inline-flex items-center justify-center gap-2"><MessageCircle size={17} /> Enviar WhatsApp</a>
+              </div>
+
+              <p className="mt-4 text-xs leading-5 text-zinc-500">
+                Depois que o cliente aprovar, use Converter em OS na tela de detalhes.
+              </p>
+            </section>
+          </aside>
         </div>
       </div>
     </div>
   );
 }
 
+function EditorField({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
+  return (
+    <div className={`rounded-2xl border border-white/10 bg-white/[.025] p-3 ${full ? "md:col-span-2" : ""}`}>
+      <label className="text-[10px] font-black uppercase tracking-[.16em] text-zinc-600">{label}</label>
+      <div className="[&_.field-input]:mt-2 [&_.field-input]:w-full [&_.field-input]:rounded-2xl [&_.field-input]:border [&_.field-input]:border-white/10 [&_.field-input]:bg-black/35 [&_.field-input]:px-4 [&_.field-input]:py-3 [&_.field-input]:text-sm [&_.field-input]:font-bold [&_.field-input]:outline-none [&_.field-input]:focus:border-volt-yellow/40">
+        {children}
+      </div>
+    </div>
+  );
+}
