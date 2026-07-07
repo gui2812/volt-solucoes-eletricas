@@ -16,6 +16,7 @@ import {
   MessageCircle,
   PieChart,
   Plus,
+  RefreshCcw,
   Search,
   Target,
   TrendingUp,
@@ -438,6 +439,7 @@ function ClientComposition() {
 
 
 const CLIENTS_STORAGE_KEY = "volt_clientes_crm_v1";
+const DELETED_CLIENTS_STORAGE_KEY = "volt_clientes_excluidos_v1";
 const QUOTES_STORAGE_KEY = "volt_cotacoes_premium_v1";
 const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
 const AGENDA_STORAGE_KEY = "volt_agenda_premium_v1";
@@ -457,9 +459,37 @@ function readArrayFromStorage(key: string) {
 }
 
 function readClientsFromStorage() {
-  const saved = readArrayFromStorage(CLIENTS_STORAGE_KEY);
+  if (typeof window === "undefined") return clientsSeed;
 
-  return saved.length ? saved as unknown as Client[] : clientsSeed;
+  try {
+    const raw = localStorage.getItem(CLIENTS_STORAGE_KEY);
+
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed as unknown as Client[] : [];
+    }
+
+    return clientsSeed;
+  } catch {
+    return clientsSeed;
+  }
+}
+
+function readDeletedClientKeys() {
+  if (typeof window === "undefined") return [] as string[];
+
+  try {
+    const raw = localStorage.getItem(DELETED_CLIENTS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") as string[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function isDeletedClient(client: Pick<Client, "id" | "name" | "phone" | "email">, deletedKeys: string[]) {
+  return deletedKeys.includes(client.id) || deletedKeys.includes(clientKey(client));
 }
 
 function textValue(value: unknown, fallback = "") {
@@ -699,7 +729,9 @@ export default function ClientesPage() {
     try {
       const savedClients = readClientsFromStorage();
       const integratedClients = buildClientsFromSystem();
-      const merged = mergeClientCollections(savedClients, integratedClients);
+      const deletedKeys = readDeletedClientKeys();
+      const merged = mergeClientCollections(savedClients, integratedClients)
+        .filter((client) => !isDeletedClient(client, deletedKeys));
 
       setClients(merged);
       setSelected((current) => current ? merged.find((item) => item.id === current.id) ?? merged[0] ?? null : merged[0] ?? null);
@@ -1090,11 +1122,42 @@ export default function ClientesPage() {
   }
 
   function removeClient(client: Client) {
-    if (!window.confirm("Excluir este cliente do CRM?")) return;
+    if (!window.confirm(`Excluir ${client.name} do CRM?\n\nEle não aparecerá mais na lista, mesmo que tenha vindo de orçamento, OS, agenda ou financeiro.`)) return;
 
-    setClients((current) => current.filter((item) => item.id !== client.id));
-    setSelected(null);
+    try {
+      const deletedKeys = readDeletedClientKeys();
+      const nextDeletedKeys = unique([...deletedKeys, client.id, clientKey(client)]);
+
+      localStorage.setItem(DELETED_CLIENTS_STORAGE_KEY, JSON.stringify(nextDeletedKeys));
+    } catch {
+      // Se a lixeira local falhar, ainda tenta remover da lista atual.
+    }
+
+    setClients((current) => {
+      const deletedKeys = readDeletedClientKeys();
+      const next = current.filter((item) => item.id !== client.id && !isDeletedClient(item, deletedKeys));
+
+      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+
+    if (selected?.id === client.id) {
+      setSelected(null);
+    }
+
+    if (documentClientId === client.id) {
+      setDocumentClientId("");
+      setDocumentDraft("");
+    }
+
     setModalOpen(false);
+  }
+
+  function restoreDeletedClients() {
+    if (!window.confirm("Restaurar clientes excluídos? Clientes vindos de orçamento, OS, agenda ou financeiro poderão aparecer novamente.")) return;
+
+    localStorage.removeItem(DELETED_CLIENTS_STORAGE_KEY);
+    syncClientsFromStorage();
   }
 
   function moveLead(id: string, status: Lead["status"]) {
@@ -1131,6 +1194,7 @@ export default function ClientesPage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
               <button onClick={createClient} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Novo cliente</button>
               <button onClick={syncClientsFromStorage} className="btn-ghost inline-flex items-center justify-center gap-2"><Users size={17} /> Atualizar CRM</button>
+              <button onClick={restoreDeletedClients} className="btn-ghost inline-flex items-center justify-center gap-2"><RefreshCcw size={17} /> Restaurar excluídos</button>
               <button onClick={() => setActiveTab("Leads")} className="btn-ghost inline-flex items-center justify-center gap-2"><UserPlus size={17} /> Novo lead</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
               <button onClick={generateCrmReport} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
@@ -1231,6 +1295,7 @@ export default function ClientesPage() {
               <div>
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Lista profissional</p>
                 <h2 className="mt-1 text-2xl font-black">Base de clientes</h2>
+                <p className="mt-2 text-xs leading-5 text-zinc-500">Clientes excluídos ficam ocultos mesmo que tenham sido importados de orçamento, OS, agenda ou financeiro.</p>
               </div>
               <Users className="text-volt-yellow" size={26} />
             </div>
@@ -1262,7 +1327,10 @@ export default function ClientesPage() {
                       <td className="px-4 py-4 font-black text-volt-yellow">{currency(client.totalRevenue)}</td>
                       <td className="px-4 py-4">{currency(client.openAmount)}</td>
                       <td className="rounded-r-2xl px-4 py-4">
-                        <button onClick={() => { setSelected(client); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Perfil</button>
+                        <div className="flex gap-3">
+                          <button onClick={() => { setSelected(client); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Perfil</button>
+                          <button onClick={() => removeClient(client)} className="text-xs font-black text-red-300 hover:text-red-200">Excluir</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
