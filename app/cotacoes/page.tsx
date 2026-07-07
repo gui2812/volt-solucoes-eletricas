@@ -2,7 +2,7 @@
 
 import { AppShell } from "@/components/layout/app-shell";
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
-import { checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
+import { checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink, sendSignatureEmail } from "@/utils/assinaturaRemota";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -674,6 +674,27 @@ export default function CotacoesPage() {
 
       const whatsapp = makeSignatureWhatsAppLink(quote.phone, result.signingUrl, quote.id);
 
+      let emailSent = false;
+      let emailWarning = "";
+
+      if (quote.email?.trim()) {
+        try {
+          await sendSignatureEmail({
+            to: quote.email,
+            clientName: quote.contact || quote.client,
+            quoteId: quote.id,
+            quoteTitle: quote.title,
+            signingUrl: result.signingUrl,
+            total: currency(quoteTotal(quote)),
+            validUntil: quote.validUntil
+          });
+
+          emailSent = true;
+        } catch (emailError) {
+          emailWarning = emailError instanceof Error ? emailError.message : "Não foi possível enviar o e-mail.";
+        }
+      }
+
       setQuotes((current) => current.map((item) => {
         if (item.id !== quote.id) return item;
 
@@ -685,7 +706,9 @@ export default function CotacoesPage() {
           signatureStatus: "Enviada",
           history: [
             ...item.history,
-            `Link de assinatura enviado em ${new Date().toLocaleDateString("pt-BR")}`
+            emailSent
+              ? `Link de assinatura enviado por WhatsApp e e-mail em ${new Date().toLocaleDateString("pt-BR")}`
+              : `Link de assinatura enviado por WhatsApp em ${new Date().toLocaleDateString("pt-BR")}`
           ]
         };
       }));
@@ -701,13 +724,21 @@ export default function CotacoesPage() {
           signatureStatus: "Enviada",
           history: [
             ...current.history,
-            `Link de assinatura enviado em ${new Date().toLocaleDateString("pt-BR")}`
+            emailSent
+              ? `Link de assinatura enviado por WhatsApp e e-mail em ${new Date().toLocaleDateString("pt-BR")}`
+              : `Link de assinatura enviado por WhatsApp em ${new Date().toLocaleDateString("pt-BR")}`
           ]
         };
       });
 
       window.open(whatsapp, "_blank");
-      alert("Link público do orçamento criado, copiado e aberto no WhatsApp do cliente. Ele não precisa acessar o sistema.");
+      alert(
+        [
+          "Link público do orçamento criado, copiado e aberto no WhatsApp do cliente.",
+          emailSent ? "E-mail de assinatura enviado para o cliente." : quote.email ? `Atenção: ${emailWarning}` : "Cliente sem e-mail cadastrado. Enviado apenas por WhatsApp.",
+          "Ele não precisa acessar o sistema."
+        ].join("\n")
+      );
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao gerar link de assinatura.");
     }
