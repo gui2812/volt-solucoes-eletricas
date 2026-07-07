@@ -2,7 +2,7 @@
 
 import { AppShell } from "@/components/layout/app-shell";
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
-import { checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink, sendSignatureEmail } from "@/utils/assinaturaRemota";
+import { checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -679,15 +679,27 @@ export default function CotacoesPage() {
 
       if (quote.email?.trim()) {
         try {
-          await sendSignatureEmail({
-            to: quote.email,
-            clientName: quote.contact || quote.client,
-            quoteId: quote.id,
-            quoteTitle: quote.title,
-            signingUrl: result.signingUrl,
-            total: currency(quoteTotal(quote)),
-            validUntil: quote.validUntil
+          const emailResponse = await fetch("/api/signature/email/send", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              to: quote.email,
+              clientName: quote.contact || quote.client,
+              quoteId: quote.id,
+              quoteTitle: quote.title,
+              signingUrl: result.signingUrl,
+              total: currency(quoteTotal(quote)),
+              validUntil: quote.validUntil
+            })
           });
+
+          const emailData = await emailResponse.json();
+
+          if (!emailResponse.ok) {
+            throw new Error(emailData.error || "Erro ao enviar e-mail de assinatura.");
+          }
 
           emailSent = true;
         } catch (emailError) {
