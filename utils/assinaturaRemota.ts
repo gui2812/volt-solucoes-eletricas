@@ -103,59 +103,6 @@ export async function checkRemoteSignatureStatus(quoteId: string) {
   return data as RemoteSignatureCheckResult;
 }
 
-export async function sendSignatureEmail({
-  to,
-  clientName,
-  quoteId,
-  quoteTitle,
-  signingUrl,
-  total,
-  validUntil
-}: {
-  to: string;
-  clientName: string;
-  quoteId: string;
-  quoteTitle: string;
-  signingUrl: string;
-  total: string;
-  validUntil: string;
-}) {
-  if (!to?.trim()) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: "Cliente sem e-mail cadastrado."
-    };
-  }
-
-  const response = await fetch("/api/signature/email/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      to,
-      clientName,
-      quoteId,
-      quoteTitle,
-      signingUrl,
-      total,
-      validUntil
-    })
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || "Erro ao enviar e-mail de assinatura.");
-  }
-
-  return data as {
-    ok: boolean;
-    id?: string;
-  };
-}
-
 export function makeSignatureWhatsAppLink(phone: string | undefined, signingUrl: string, quoteId: string) {
   const digits = String(phone || "").replace(/\D/g, "");
   const phoneNumber = digits.startsWith("55") ? digits : `55${digits}`;
