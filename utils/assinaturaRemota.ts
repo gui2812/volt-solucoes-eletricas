@@ -29,6 +29,22 @@ export type RemoteSignatureQuoteSnapshot = {
   items: RemoteSignatureQuoteItem[];
 };
 
+export type RemoteSignatureCheckResult = {
+  found: boolean;
+  status?: "pending" | "signed" | "expired" | "cancelled";
+  token?: string;
+  signingUrl?: string;
+  signedAt?: string;
+  expiresAt?: string;
+  clientSignature?: {
+    signerName?: string;
+    mode?: "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
+    signedAt?: string;
+    signatureDataUrl?: string;
+    acceptedTerms?: boolean;
+  };
+};
+
 export async function createRemoteSignatureLink(snapshot: RemoteSignatureQuoteSnapshot) {
   const response = await fetch("/api/signature/create", {
     method: "POST",
@@ -57,6 +73,20 @@ export async function createRemoteSignatureLink(snapshot: RemoteSignatureQuoteSn
     token: string;
     signingUrl: string;
   };
+}
+
+export async function checkRemoteSignatureStatus(quoteId: string) {
+  const response = await fetch(`/api/signature/by-quote/${encodeURIComponent(quoteId)}`, {
+    cache: "no-store"
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Erro ao verificar assinatura.");
+  }
+
+  return data as RemoteSignatureCheckResult;
 }
 
 export function makeSignatureWhatsAppLink(phone: string | undefined, signingUrl: string, quoteId: string) {
