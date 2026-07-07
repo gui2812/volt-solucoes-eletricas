@@ -45,6 +45,17 @@ type SignatureRecord = {
   expiresAt?: string;
 };
 
+type SignatureMode = "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
+type SignatureStyle = "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
+
+const signatureStyles: Array<{ value: SignatureStyle; label: string; className: string }> = [
+  { value: "Clássica", label: "Clássica", className: "font-serif text-4xl italic md:text-5xl" },
+  { value: "Elegante", label: "Elegante", className: "font-serif text-5xl italic tracking-wide md:text-6xl" },
+  { value: "Moderna", label: "Moderna", className: "font-sans text-3xl font-light tracking-[.28em] uppercase md:text-4xl" },
+  { value: "Rubrica rápida", label: "Rubrica rápida", className: "font-serif text-4xl italic -skew-x-6 md:text-5xl" },
+  { value: "Formal", label: "Formal", className: "font-serif text-3xl font-bold tracking-wide md:text-4xl" }
+];
+
 function currency(value: number) {
   return value.toLocaleString("pt-BR", {
     style: "currency",
@@ -65,8 +76,8 @@ function itemTotal(item: QuoteItem) {
 }
 
 export default function AssinarOrcamentoPage() {
-  const params = useParams<{ token: string }>();
-  const token = params.token;
+  const params = useParams();
+  const token = String(params?.token || "");
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
@@ -79,7 +90,8 @@ export default function AssinarOrcamentoPage() {
   const [success, setSuccess] = useState(false);
 
   const [signerName, setSignerName] = useState("");
-  const [mode, setMode] = useState<"Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite">("Assinatura livre");
+  const [mode, setMode] = useState<SignatureMode>("Assinatura livre");
+  const [signatureStyle, setSignatureStyle] = useState<SignatureStyle>("Clássica");
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
@@ -107,6 +119,7 @@ export default function AssinarOrcamentoPage() {
   }, [token]);
 
   const quote = record?.quoteSnapshot;
+  const activeStyle = signatureStyles.find((item) => item.value === signatureStyle) ?? signatureStyles[0];
 
   const total = useMemo(() => {
     return (quote?.items ?? []).reduce((sum, item) => sum + itemTotal(item), 0);
@@ -188,8 +201,9 @@ export default function AssinarOrcamentoPage() {
     setSignatureDataUrl("");
   }
 
-  function usePredefined() {
+  function usePredefined(style: SignatureStyle) {
     setMode("Rubrica predefinida");
+    setSignatureStyle(style);
     setSignatureDataUrl("");
   }
 
@@ -203,6 +217,10 @@ export default function AssinarOrcamentoPage() {
       setSaving(true);
       setError("");
 
+      if (!signerName.trim()) {
+        throw new Error("Digite o nome completo para assinar.");
+      }
+
       if (mode === "Assinatura livre" && !signatureDataUrl) {
         throw new Error("Assine no campo indicado ou escolha uma rubrica predefinida.");
       }
@@ -215,6 +233,7 @@ export default function AssinarOrcamentoPage() {
         body: JSON.stringify({
           signerName,
           signatureMode: mode,
+          signatureStyle,
           signatureDataUrl,
           acceptedTerms
         })
@@ -274,9 +293,9 @@ export default function AssinarOrcamentoPage() {
 
               <div>
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Volt Soluções Elétricas</p>
-                <h1 className="mt-1 text-3xl font-black md:text-5xl">Aprovação de orçamento</h1>
+                <h1 className="mt-1 text-3xl font-black md:text-5xl">Análise e assinatura do orçamento</h1>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  Revise os dados abaixo e assine digitalmente pelo celular, tablet ou computador.
+                  Esta página é pública e segura. O cliente não precisa acessar o sistema da Volt.
                 </p>
               </div>
             </div>
@@ -302,7 +321,7 @@ export default function AssinarOrcamentoPage() {
         <section className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
           <div className="space-y-5">
             <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Dados do cliente</p>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Orçamento para análise</p>
 
               <div className="mt-5 grid gap-3 md:grid-cols-2">
                 {[
@@ -344,7 +363,7 @@ export default function AssinarOrcamentoPage() {
             </section>
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Condições</p>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Condições comerciais</p>
 
               <div className="mt-5 grid gap-3 md:grid-cols-3">
                 {[
@@ -394,6 +413,7 @@ export default function AssinarOrcamentoPage() {
                   <input
                     value={signerName}
                     onChange={(event) => setSignerName(event.target.value)}
+                    placeholder="Digite o nome do cliente"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
                   />
                 </div>
@@ -405,14 +425,6 @@ export default function AssinarOrcamentoPage() {
                     className={`rounded-2xl border px-4 py-3 text-sm font-black ${mode === "Assinatura livre" ? "border-volt-yellow bg-volt-yellow text-black" : "border-white/10 text-zinc-300"}`}
                   >
                     Assinar livremente
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={usePredefined}
-                    className={`rounded-2xl border px-4 py-3 text-sm font-black ${mode === "Rubrica predefinida" ? "border-volt-yellow bg-volt-yellow text-black" : "border-white/10 text-zinc-300"}`}
-                  >
-                    Usar rubrica predefinida
                   </button>
 
                   <button
@@ -444,11 +456,31 @@ export default function AssinarOrcamentoPage() {
                   </div>
                 )}
 
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-black uppercase tracking-[.16em] text-zinc-600">Rubricas predefinidas</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {signatureStyles.map((style) => (
+                      <button
+                        key={style.value}
+                        type="button"
+                        onClick={() => usePredefined(style.value)}
+                        className={`rounded-2xl border px-4 py-3 text-sm font-black ${
+                          mode === "Rubrica predefinida" && signatureStyle === style.value
+                            ? "border-volt-yellow bg-volt-yellow text-black"
+                            : "border-white/10 text-zinc-300"
+                        }`}
+                      >
+                        {style.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {mode === "Rubrica predefinida" && (
                   <div className="mt-4 grid h-44 place-items-center rounded-2xl border border-dashed border-volt-yellow/30 bg-[#050505] p-4 text-center">
                     <div>
-                      <p className="font-serif text-4xl italic leading-tight text-white">{signerName || "Cliente"}</p>
-                      <p className="mt-3 text-xs font-bold text-zinc-500">Rubrica predefinida pelo sistema</p>
+                      <p className={`${activeStyle.className} leading-tight text-white`}>{signerName || "Digite o nome"}</p>
+                      <p className="mt-3 text-xs font-bold text-zinc-500">{signatureStyle} • rubrica predefinida</p>
                     </div>
                   </div>
                 )}
