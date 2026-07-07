@@ -37,7 +37,7 @@ type QuoteStatus =
   | "Convertida em OS";
 
 
-type SignatureMode = "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
+type SignatureMode = "Pendente" | "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
 
 type SignatureStyle = "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
 
@@ -634,8 +634,8 @@ export default function CotacoesPage() {
       responsibleRole: "Responsável técnico",
       responsibleDocument: "Volt Soluções Elétricas",
 
-      responsibleSignature: pdfQuote.responsibleSignature ?? makeSignature(pdfQuote.responsible || "Guilherme Santana", "Rubrica predefinida"),
-      clientSignature: pdfQuote.clientSignature ?? makeSignature(pdfQuote.client || pdfQuote.contact || "Cliente", "Pendente"),
+      responsibleSignature: (pdfQuote.responsibleSignature ?? makeSignature(pdfQuote.responsible || "Guilherme Santana", "Rubrica predefinida")) as any,
+      clientSignature: (pdfQuote.clientSignature ?? makeSignature(pdfQuote.client || pdfQuote.contact || "", "Pendente")) as any,
 
       companyPhone: "(11) 98878-3401",
       companyEmail: "solucoeseletricasvolt@gmail.com",
