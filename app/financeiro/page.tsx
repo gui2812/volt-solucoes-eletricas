@@ -455,6 +455,41 @@ function CashFlowWaterfall() {
   );
 }
 
+
+const FINANCE_STORAGE_KEY = "volt_financeiro_premium_v1";
+const FINANCE_QUEUE_KEY = "volt_financeiro_lancamentos_v1";
+
+function mergeTransactions(base: Transaction[], incoming: Transaction[]) {
+  const map = new Map<string, Transaction>();
+
+  [...incoming, ...base].forEach((transaction) => {
+    const key = transaction.serviceOrder && transaction.serviceOrder !== "Sem OS"
+      ? transaction.serviceOrder
+      : transaction.id;
+
+    if (!map.has(key)) {
+      map.set(key, transaction);
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function readFinanceFromStorage() {
+  const saved = localStorage.getItem(FINANCE_STORAGE_KEY);
+  const parsed = saved ? JSON.parse(saved) : null;
+
+  return Array.isArray(parsed) ? parsed as Transaction[] : transactionsSeed;
+}
+
+function readFinanceQueue() {
+  const saved = localStorage.getItem(FINANCE_QUEUE_KEY);
+  const parsed = saved ? JSON.parse(saved) : null;
+
+  return Array.isArray(parsed) ? parsed as Transaction[] : [];
+}
+
+
 export default function FinanceiroPage() {
   const [transactions, setTransactions] = useState<Transaction[]>(transactionsSeed);
   const [activeTab, setActiveTab] = useState("Visão Geral");
@@ -463,70 +498,61 @@ export default function FinanceiroPage() {
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [selected, setSelected] = useState<Transaction | null>(transactionsSeed[0]);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [draft, setDraft] = useState<EditableRecord | null>(null);
-  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("volt_financeiro_premium_v1");
-      if (saved) {
-        const parsed = JSON.parse(saved) as Transaction[];
-        if (Array.isArray(parsed)) {
-          setTransactions(parsed);
-          setSelected(parsed[0] ?? null);
+    function syncFinanceFromStorage() {
+      try {
+        const savedTransactions = readFinanceFromStorage();
+        const queuedTransactions = readFinanceQueue();
+        const merged = mergeTransactions(savedTransactions, queuedTransactions);
+
+        setTransactions(merged);
+        setSelected(merged[0] ?? null);
+        localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(merged));
+
+        if (queuedTransactions.length) {
+          localStorage.removeItem(FINANCE_QUEUE_KEY);
         }
+      } catch {
+        setTransactions(transactionsSeed);
+      } finally {
+        setStorageReady(true);
       }
-    } catch {
-      setTransactions(transactionsSeed);
-    } finally {
-      setStorageReady(true);
     }
+
+    syncFinanceFromStorage();
+
+    window.addEventListener("storage", syncFinanceFromStorage);
+    window.addEventListener("volt:financeiro-lancamento-criado", syncFinanceFromStorage);
+
+    return () => {
+      window.removeEventListener("storage", syncFinanceFromStorage);
+      window.removeEventListener("volt:financeiro-lancamento-criado", syncFinanceFromStorage);
+    };
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
-    localStorage.setItem("volt_financeiro_premium_v1", JSON.stringify(transactions));
+    localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(transactions));
   }, [storageReady, transactions]);
 
-  function getRecordKey(item: Transaction) {
-    return item.id;
-  }
+  function forceSyncFinance() {
+    try {
+      const savedTransactions = readFinanceFromStorage();
+      const queuedTransactions = readFinanceQueue();
+      const merged = mergeTransactions(savedTransactions, queuedTransactions);
 
-  function openEditor(item: Transaction) {
-    setEditingKey(getRecordKey(item));
-    setDraft({ ...item } as unknown as EditableRecord);
-    setEditOpen(true);
-  }
+      setTransactions(merged);
+      setSelected(merged[0] ?? null);
+      localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(merged));
+      localStorage.removeItem(FINANCE_QUEUE_KEY);
 
-  function saveEditor() {
-    if (!draft) return;
-    const next = draft as unknown as Transaction;
-    setTransactions((current) => current.map((item) => getRecordKey(item) === editingKey ? next : item));
-    setSelected(next);
-    setEditOpen(false);
+      alert("Financeiro atualizado.");
+    } catch {
+      alert("Não foi possível atualizar o financeiro agora.");
+    }
   }
-
-  function duplicateSelected() {
-    if (!selected) return;
-    const copy: Transaction = { ...selected, id: `FIN-${String(transactions.length + 1).padStart(3, "0")}`, title: `${selected.title} cópia` };
-    setTransactions((current) => [copy, ...current]);
-    setSelected(copy);
-    setEditingKey(getRecordKey(copy));
-    setDraft({ ...copy } as unknown as EditableRecord);
-    setEditOpen(true);
-  }
-
-  function removeSelected() {
-    if (!selected) return;
-    if (!window.confirm("Excluir este registro?")) return;
-    setTransactions((current) => current.filter((item) => getRecordKey(item) !== getRecordKey(selected)));
-    setSelected(null);
-    setModalOpen(false);
-    setEditOpen(false);
-  }
-
 
   const filtered = useMemo(() => {
     return transactions.filter((item) => {
@@ -577,10 +603,7 @@ export default function FinanceiroPage() {
 
     setTransactions((current) => [next, ...current]);
     setSelected(next);
-    setEditingKey(getRecordKey(next));
-    setDraft({ ...next } as unknown as EditableRecord);
-    setModalOpen(false);
-    setEditOpen(true);
+    setModalOpen(true);
   }
 
   function exportCsv() {
@@ -620,6 +643,7 @@ export default function FinanceiroPage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
               <button onClick={() => createTransaction("Receita")} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Nova receita</button>
               <button onClick={() => createTransaction("Despesa")} className="btn-ghost inline-flex items-center justify-center gap-2"><TrendingDown size={17} /> Nova despesa</button>
+              <button onClick={forceSyncFinance} className="btn-ghost inline-flex items-center justify-center gap-2"><Wallet size={17} /> Atualizar lançamentos</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
               <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
             </div>
@@ -930,10 +954,7 @@ export default function FinanceiroPage() {
                   <p className="mt-2 text-sm text-zinc-500">{selected.id} • {selected.clientSupplier}</p>
                 </div>
 
-                <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
-                  <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
-                  <button onClick={removeSelected} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
-                  <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
+                <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
               </div>
 
               <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -967,128 +988,7 @@ export default function FinanceiroPage() {
             </div>
           </div>
         )}
-
-        {editOpen && draft && (
-          <EditableRecordModal
-            title={editingKey ? "Editar registro" : "Novo registro"}
-            draft={draft}
-            setDraft={setDraft}
-            onSave={saveEditor}
-            onCancel={() => setEditOpen(false)}
-          />
-        )}
       </div>
     </AppShell>
   );
 }
-
-
-type EditableRecord = Record<string, unknown>;
-
-function EditableRecordModal({
-  title,
-  draft,
-  setDraft,
-  onSave,
-  onCancel
-}: {
-  title: string;
-  draft: EditableRecord;
-  setDraft: (value: EditableRecord) => void;
-  onSave: () => void;
-  onCancel: () => void;
-}) {
-  function fieldValue(value: unknown) {
-    if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-      return JSON.stringify(value, null, 2);
-    }
-
-    return String(value ?? "");
-  }
-
-  function parseValue(oldValue: unknown, raw: string) {
-    if (typeof oldValue === "number") return Number(raw.replace(",", ".")) || 0;
-    if (typeof oldValue === "boolean") return raw === "true";
-
-    if (Array.isArray(oldValue) || (typeof oldValue === "object" && oldValue !== null)) {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw.split(",").map((item) => item.trim()).filter(Boolean);
-      }
-    }
-
-    return raw;
-  }
-
-  function updateField(key: string, raw: string) {
-    setDraft({
-      ...draft,
-      [key]: parseValue(draft[key], raw)
-    });
-  }
-
-  return (
-    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="volt-scroll max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
-        <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Edição funcional</p>
-            <h2 className="mt-2 text-3xl font-black">{title}</h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-500">
-              Edite os dados, salve e a alteração ficará gravada no navegador.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button onClick={onCancel} className="btn-ghost">Cancelar</button>
-            <button onClick={onSave} className="btn-primary">Salvar alterações</button>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          {Object.entries(draft).map(([key, value]) => {
-            const isLong = Array.isArray(value) || (typeof value === "object" && value !== null) || key.toLowerCase().includes("notes") || key.toLowerCase().includes("observ");
-
-            return (
-              <div key={key} className={`rounded-2xl border border-white/10 bg-white/[.035] p-4 ${isLong ? "md:col-span-2" : ""}`}>
-                <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{key}</label>
-
-                {typeof value === "boolean" ? (
-                  <select
-                    value={value ? "true" : "false"}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  >
-                    <option value="true">Sim</option>
-                    <option value="false">Não</option>
-                  </select>
-                ) : isLong ? (
-                  <textarea
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    rows={5}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                ) : (
-                  <input
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    type={typeof value === "number" ? "number" : "text"}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 flex justify-end gap-2 border-t border-white/10 pt-5">
-          <button onClick={onCancel} className="btn-ghost">Cancelar</button>
-          <button onClick={onSave} className="btn-primary">Salvar alterações</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
