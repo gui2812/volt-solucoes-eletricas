@@ -206,6 +206,8 @@ function ProgressBar({ value }: { value: number }) {
 
 const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
 const CONVERTED_ORDERS_QUEUE_KEY = "volt_ordens_convertidas_v1";
+const FINANCE_STORAGE_KEY = "volt_financeiro_premium_v1";
+const FINANCE_QUEUE_KEY = "volt_financeiro_lancamentos_v1";
 
 function mergeOrders(base: ServiceOrder[], converted: ServiceOrder[]) {
   const map = new Map<string, ServiceOrder>();
@@ -234,6 +236,68 @@ function readConvertedOrdersQueue() {
 
   return Array.isArray(parsed) ? parsed as ServiceOrder[] : [];
 }
+
+
+function addDaysIso(date: string, days: number) {
+  const base = date ? new Date(`${date}T12:00:00`) : new Date();
+
+  if (Number.isNaN(base.getTime())) {
+    return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
+
+  base.setDate(base.getDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+function makeFinancialTransactionFromOrder(order: ServiceOrder) {
+  const isReceived = order.paid >= order.value && order.value > 0;
+  const today = new Date().toISOString().slice(0, 10);
+
+  return {
+    id: `FIN-${order.id.replace(/\W/g, "")}`,
+    type: "Conta a receber",
+    title: `${order.id} - ${order.title}`,
+    clientSupplier: order.client,
+    costCenter: "Serviços técnicos",
+    category: order.type || "Serviço elétrico",
+    budgeted: order.value,
+    actual: order.paid,
+    competenceDate: order.date || today,
+    dueDate: addDaysIso(order.date || today, 7),
+    paymentDate: isReceived ? today : "",
+    status: isReceived ? "Recebido" : "Aberto",
+    paymentMethod: "Pix",
+    serviceOrder: order.id,
+    quote: order.quote || "Sem cotação",
+    recurrence: "Única",
+    responsible: order.technician || "Guilherme Santana",
+    notes: `Lançamento criado automaticamente a partir da OS ${order.id}.`
+  };
+}
+
+function pushFinancialTransaction(transaction: ReturnType<typeof makeFinancialTransactionFromOrder>) {
+  const savedFinance = localStorage.getItem(FINANCE_STORAGE_KEY);
+  const parsedFinance = savedFinance ? JSON.parse(savedFinance) : [];
+  const currentFinance = Array.isArray(parsedFinance) ? parsedFinance : [];
+
+  const savedQueue = localStorage.getItem(FINANCE_QUEUE_KEY);
+  const parsedQueue = savedQueue ? JSON.parse(savedQueue) : [];
+  const currentQueue = Array.isArray(parsedQueue) ? parsedQueue : [];
+
+  const existsInFinance = currentFinance.some((item: { id?: string; serviceOrder?: string }) => item.id === transaction.id || item.serviceOrder === transaction.serviceOrder);
+  const existsInQueue = currentQueue.some((item: { id?: string; serviceOrder?: string }) => item.id === transaction.id || item.serviceOrder === transaction.serviceOrder);
+
+  if (!existsInFinance) {
+    localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify([transaction, ...currentFinance]));
+  }
+
+  if (!existsInQueue) {
+    localStorage.setItem(FINANCE_QUEUE_KEY, JSON.stringify([transaction, ...currentQueue]));
+  }
+
+  return existsInFinance || existsInQueue;
+}
+
 
 export default function OrdensPage() {
   const [orders, setOrders] = useState<ServiceOrder[]>(ordersSeed);
@@ -321,6 +385,47 @@ export default function OrdensPage() {
     setEditOpen(false);
   }
 
+
+  function launchOrderToFinance(order: ServiceOrder) {
+    try {
+      const transaction = makeFinancialTransactionFromOrder(order);
+      const alreadyExists = pushFinancialTransaction(transaction);
+
+      const notesMessage = `Lançamento financeiro vinculado: ${transaction.id}`;
+
+      setOrders((current) => current.map((item) => {
+        if (item.id !== order.id) return item;
+
+        return {
+          ...item,
+          notes: item.notes.includes(notesMessage) ? item.notes : `${item.notes}\n${notesMessage}`.trim()
+        };
+      }));
+
+      setSelected((current) => {
+        if (!current || current.id !== order.id) return current;
+
+        return {
+          ...current,
+          notes: current.notes.includes(notesMessage) ? current.notes : `${current.notes}\n${notesMessage}`.trim()
+        };
+      });
+
+      window.dispatchEvent(new CustomEvent("volt:financeiro-lancamento-criado", { detail: transaction }));
+
+      const message = alreadyExists
+        ? `A OS ${order.id} já tinha lançamento financeiro.`
+        : `Lançamento financeiro ${transaction.id} criado para a OS ${order.id}.`;
+
+      const openFinance = window.confirm(`${message}\n\nDeseja abrir o Financeiro agora?`);
+
+      if (openFinance) {
+        window.location.href = "/financeiro";
+      }
+    } catch {
+      alert("Não foi possível lançar esta OS no financeiro.");
+    }
+  }
 
   function forceSyncConvertedOrders() {
     try {
@@ -565,6 +670,7 @@ export default function OrdensPage() {
 
                 <div className="flex gap-2">
                   <a href={`https://wa.me/55${selected.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
+                  <button onClick={() => launchOrderToFinance(selected)} className="btn-ghost inline-flex items-center gap-2"><Wallet size={17} /> Lançar financeiro</button>
                   <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
                   <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
                   <button onClick={removeSelected} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
@@ -638,7 +744,7 @@ export default function OrdensPage() {
                   <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
                     <p className="text-sm font-black text-volt-yellow">Pronto para evoluir</p>
                     <p className="mt-2 text-sm leading-7 text-zinc-300">
-                      Estrutura preparada para assinatura, PDF da OS, financeiro, anexos, aceite do cliente e banco Supabase.
+                      Agora a OS pode ser lançada no financeiro com conta a receber vinculada, além de anexos, aceite do cliente e banco Supabase.
                     </p>
                   </div>
                 </div>
