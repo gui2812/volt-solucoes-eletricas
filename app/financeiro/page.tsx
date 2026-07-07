@@ -22,7 +22,7 @@ import {
   Wallet,
   Zap
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 
 type TransactionType = "Receita" | "Despesa" | "Conta a pagar" | "Conta a receber";
 type TransactionStatus = "Aberto" | "Pago" | "Recebido" | "Vencido" | "Cancelado";
@@ -57,6 +57,19 @@ type CostCenter = {
   annualBudget: number;
   monthlyActual: number;
   annualActual: number;
+  notes: string;
+};
+
+type GoalPeriod = "Mensal" | "Anual";
+type GoalCategory = "Faturamento" | "Lucro" | "Despesa" | "Personalizada";
+
+type FinancialGoal = {
+  id: string;
+  title: string;
+  period: GoalPeriod;
+  category: GoalCategory;
+  target: number;
+  actual: number;
   notes: string;
 };
 
@@ -240,11 +253,43 @@ const monthlyData = [
   { month: "Jun", receita: 18450, despesa: 7240, lucro: 11210, orcado: 25000 }
 ];
 
-const goals = [
-  { title: "Meta mensal de faturamento", target: 25000, actual: 18450 },
-  { title: "Meta mensal de lucro", target: 14000, actual: 11210 },
-  { title: "Meta anual de faturamento", target: 220000, actual: 70050 },
-  { title: "Limite mensal de despesas", target: 9000, actual: 7240 }
+const goalsSeed: FinancialGoal[] = [
+  {
+    id: "META-001",
+    title: "Meta mensal de faturamento",
+    period: "Mensal",
+    category: "Faturamento",
+    target: 25000,
+    actual: 18450,
+    notes: "Meta principal de receita mensal."
+  },
+  {
+    id: "META-002",
+    title: "Meta mensal de lucro",
+    period: "Mensal",
+    category: "Lucro",
+    target: 14000,
+    actual: 11210,
+    notes: "Meta de margem/lucro mensal."
+  },
+  {
+    id: "META-003",
+    title: "Meta anual de faturamento",
+    period: "Anual",
+    category: "Faturamento",
+    target: 220000,
+    actual: 70050,
+    notes: "Meta de faturamento acumulado no ano."
+  },
+  {
+    id: "META-004",
+    title: "Limite mensal de despesas",
+    period: "Mensal",
+    category: "Despesa",
+    target: 9000,
+    actual: 7240,
+    notes: "Controle de teto mensal para custos e despesas."
+  }
 ];
 
 const tabs = [
@@ -458,6 +503,7 @@ function CashFlowWaterfall() {
 
 const FINANCE_STORAGE_KEY = "volt_financeiro_premium_v1";
 const FINANCE_QUEUE_KEY = "volt_financeiro_lancamentos_v1";
+const GOALS_STORAGE_KEY = "volt_financeiro_metas_v1";
 const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
 
 function mergeTransactions(base: Transaction[], incoming: Transaction[]) {
@@ -539,6 +585,54 @@ function syncLinkedOrderPaymentFromFinance(transaction: Transaction) {
 }
 
 
+
+function readGoalsFromStorage() {
+  const saved = localStorage.getItem(GOALS_STORAGE_KEY);
+  const parsed = saved ? JSON.parse(saved) : null;
+
+  return Array.isArray(parsed) ? parsed as FinancialGoal[] : goalsSeed;
+}
+
+function makeEmptyTransaction(type: TransactionType, count: number): Transaction {
+  const today = todayIso();
+  const isIncome = type === "Receita" || type === "Conta a receber";
+  const isExpense = type === "Despesa" || type === "Conta a pagar";
+
+  return {
+    id: `FIN-${String(Date.now()).slice(-6)}-${String(count + 1).padStart(2, "0")}`,
+    type,
+    title: isIncome ? "Nova receita" : isExpense ? "Nova despesa" : "Novo lançamento",
+    clientSupplier: isIncome ? "Novo cliente" : "Novo fornecedor",
+    costCenter: "Serviços técnicos",
+    category: "A definir",
+    budgeted: 0,
+    actual: 0,
+    competenceDate: today,
+    dueDate: today,
+    paymentDate: "",
+    status: "Aberto",
+    paymentMethod: "Pix",
+    serviceOrder: "Sem OS",
+    quote: "Sem cotação",
+    recurrence: "Única",
+    responsible: "Guilherme Santana",
+    notes: ""
+  };
+}
+
+function makeEmptyGoal(count: number): FinancialGoal {
+  return {
+    id: `META-${String(Date.now()).slice(-6)}-${String(count + 1).padStart(2, "0")}`,
+    title: "Nova meta financeira",
+    period: "Mensal",
+    category: "Faturamento",
+    target: 0,
+    actual: 0,
+    notes: ""
+  };
+}
+
+
 export default function FinanceiroPage() {
   const [transactions, setTransactions] = useState<Transaction[]>(transactionsSeed);
   const [activeTab, setActiveTab] = useState("Visão Geral");
@@ -547,6 +641,11 @@ export default function FinanceiroPage() {
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [selected, setSelected] = useState<Transaction | null>(transactionsSeed[0]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [transactionEditOpen, setTransactionEditOpen] = useState(false);
+  const [transactionDraft, setTransactionDraft] = useState<Transaction | null>(null);
+  const [goals, setGoals] = useState<FinancialGoal[]>(goalsSeed);
+  const [goalEditOpen, setGoalEditOpen] = useState(false);
+  const [goalDraft, setGoalDraft] = useState<FinancialGoal | null>(null);
   const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
@@ -586,6 +685,19 @@ export default function FinanceiroPage() {
     localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(transactions));
   }, [storageReady, transactions]);
 
+  useEffect(() => {
+    try {
+      setGoals(readGoalsFromStorage());
+    } catch {
+      setGoals(goalsSeed);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(goals));
+  }, [storageReady, goals]);
+
   function forceSyncFinance() {
     try {
       const savedTransactions = readFinanceFromStorage();
@@ -621,38 +733,102 @@ export default function FinanceiroPage() {
     const vencido = filtered.filter((item) => item.status === "Vencido").reduce((sum, item) => sum + item.budgeted, 0);
     const saldo = receitaRealizada - despesasRealizadas;
     const margem = receitaRealizada ? (saldo / receitaRealizada) * 100 : 0;
-    const metaMensal = 25000;
-    const metaAtingida = (receitaRealizada + receber) / metaMensal * 100;
+    const metaMensal = goals.find((goal) => goal.period === "Mensal" && goal.category === "Faturamento")?.target || 25000;
+    const metaAtingida = (receitaRealizada + receber) / Math.max(metaMensal, 1) * 100;
     const ticketMedio = receitaRealizada / Math.max(filtered.filter((item) => item.type === "Receita").length, 1);
 
-    return { receitaRealizada, despesasRealizadas, receber, pagar, vencido, saldo, margem, metaAtingida, ticketMedio };
-  }, [filtered]);
+    return { receitaRealizada, despesasRealizadas, receber, pagar, vencido, saldo, margem, metaAtingida, ticketMedio, metaMensal };
+  }, [filtered, goals]);
 
   function createTransaction(type: TransactionType) {
+    const next = makeEmptyTransaction(type, transactions.length);
+
+    setTransactionDraft(next);
+    setTransactionEditOpen(true);
+    setModalOpen(false);
+  }
+
+  function openTransactionEditor(transaction: Transaction) {
+    setTransactionDraft({ ...transaction });
+    setTransactionEditOpen(true);
+  }
+
+  function saveTransaction() {
+    if (!transactionDraft) return;
+
     const next: Transaction = {
-      id: `FIN-${String(transactions.length + 1).padStart(3, "0")}`,
-      type,
-      title: type === "Receita" ? "Nova receita" : type === "Despesa" ? "Nova despesa" : type,
-      clientSupplier: "Novo cliente/fornecedor",
-      costCenter: "Serviços técnicos",
-      category: "A definir",
-      budgeted: 0,
-      actual: 0,
-      competenceDate: "2026-06-30",
-      dueDate: "2026-06-30",
-      paymentDate: "",
-      status: "Aberto",
-      paymentMethod: "Pix",
-      serviceOrder: "Sem OS",
-      quote: "Sem cotação",
-      recurrence: "Única",
-      responsible: "Guilherme Santana",
-      notes: "Editar informações do lançamento."
+      ...transactionDraft,
+      title: transactionDraft.title.trim() || "Novo lançamento",
+      clientSupplier: transactionDraft.clientSupplier.trim() || "Não informado",
+      costCenter: transactionDraft.costCenter.trim() || "A definir",
+      category: transactionDraft.category.trim() || "A definir",
+      budgeted: Number(transactionDraft.budgeted || 0),
+      actual: Number(transactionDraft.actual || 0),
+      status: transactionDraft.status,
+      notes: transactionDraft.notes.trim()
     };
 
-    setTransactions((current) => [next, ...current]);
+    setTransactions((current) => {
+      const exists = current.some((item) => item.id === next.id);
+
+      return exists
+        ? current.map((item) => item.id === next.id ? next : item)
+        : [next, ...current];
+    });
+
     setSelected(next);
     setModalOpen(true);
+    setTransactionEditOpen(false);
+    setTransactionDraft(null);
+  }
+
+  function removeTransaction(transaction: Transaction) {
+    if (!window.confirm("Excluir este lançamento financeiro?")) return;
+
+    setTransactions((current) => current.filter((item) => item.id !== transaction.id));
+    setSelected(null);
+    setModalOpen(false);
+  }
+
+  function createGoal() {
+    const next = makeEmptyGoal(goals.length);
+
+    setGoalDraft(next);
+    setGoalEditOpen(true);
+  }
+
+  function openGoalEditor(goal: FinancialGoal) {
+    setGoalDraft({ ...goal });
+    setGoalEditOpen(true);
+  }
+
+  function saveGoal() {
+    if (!goalDraft) return;
+
+    const next: FinancialGoal = {
+      ...goalDraft,
+      title: goalDraft.title.trim() || "Meta financeira",
+      target: Number(goalDraft.target || 0),
+      actual: Number(goalDraft.actual || 0),
+      notes: goalDraft.notes.trim()
+    };
+
+    setGoals((current) => {
+      const exists = current.some((item) => item.id === next.id);
+
+      return exists
+        ? current.map((item) => item.id === next.id ? next : item)
+        : [next, ...current];
+    });
+
+    setGoalEditOpen(false);
+    setGoalDraft(null);
+  }
+
+  function removeGoal(goal: FinancialGoal) {
+    if (!window.confirm("Excluir esta meta financeira?")) return;
+
+    setGoals((current) => current.filter((item) => item.id !== goal.id));
   }
 
   function markTransactionAsDone(transaction: Transaction) {
@@ -738,6 +914,9 @@ export default function FinanceiroPage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
               <button onClick={() => createTransaction("Receita")} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Nova receita</button>
               <button onClick={() => createTransaction("Despesa")} className="btn-ghost inline-flex items-center justify-center gap-2"><TrendingDown size={17} /> Nova despesa</button>
+              <button onClick={() => createTransaction("Conta a receber")} className="btn-ghost inline-flex items-center justify-center gap-2"><Receipt size={17} /> Nova conta a receber</button>
+              <button onClick={() => createTransaction("Conta a pagar")} className="btn-ghost inline-flex items-center justify-center gap-2"><CreditCard size={17} /> Nova conta a pagar</button>
+              <button onClick={createGoal} className="btn-ghost inline-flex items-center justify-center gap-2"><Target size={17} /> Nova meta</button>
               <button onClick={forceSyncFinance} className="btn-ghost inline-flex items-center justify-center gap-2"><Wallet size={17} /> Atualizar lançamentos</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
               <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
@@ -872,7 +1051,10 @@ export default function FinanceiroPage() {
                       <td className="px-4 py-4">{item.dueDate}</td>
                       <td className="px-4 py-4"><Badge className={statusColors[item.status]}>{item.status}</Badge></td>
                       <td className="rounded-r-2xl px-4 py-4">
-                        <button onClick={() => { setSelected(item); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Detalhes</button>
+                        <div className="flex gap-3">
+                          <button onClick={() => { setSelected(item); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Detalhes</button>
+                          <button onClick={() => openTransactionEditor(item)} className="text-xs font-black text-zinc-300 hover:text-volt-yellow">Editar</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -961,22 +1143,47 @@ export default function FinanceiroPage() {
         )}
 
         {activeTab === "Metas" && (
-          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-            {goals.map((goal) => {
-              const reached = (goal.actual / goal.target) * 100;
-              return (
-                <article key={goal.title} className="card-premium rounded-[2rem] p-5">
-                  <Target className="mb-5 text-volt-yellow" size={28} />
-                  <h3 className="text-xl font-black">{goal.title}</h3>
-                  <p className="mt-2 text-sm text-zinc-500">{currency(goal.actual)} de {currency(goal.target)}</p>
-                  <p className="mt-5 text-4xl font-black text-volt-yellow">{percent(reached)}</p>
-                  <div className="mt-4"><ProgressBar value={reached} danger={goal.title.includes("despesas") && reached > 90} /></div>
-                  <p className="mt-4 text-sm leading-6 text-zinc-400">
-                    Falta {currency(Math.max(goal.target - goal.actual, 0))} para atingir o planejado.
-                  </p>
-                </article>
-              );
-            })}
+          <section className="space-y-5">
+            <div className="flex flex-col justify-between gap-3 rounded-[2rem] border border-white/10 bg-white/[.025] p-5 md:flex-row md:items-center">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Metas financeiras</p>
+                <h2 className="mt-1 text-2xl font-black">Mensais e anuais</h2>
+                <p className="mt-2 text-sm leading-6 text-zinc-500">Cadastre metas de faturamento, lucro, despesa ou qualquer indicador personalizado.</p>
+              </div>
+              <button onClick={createGoal} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Nova meta</button>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              {goals.map((goal) => {
+                const reached = goal.target ? (goal.actual / goal.target) * 100 : 0;
+                const isExpenseGoal = goal.category === "Despesa";
+                const ok = isExpenseGoal ? reached <= 100 : reached >= 100;
+                return (
+                  <article key={goal.id} className="card-premium rounded-[2rem] p-5">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <Badge className={goal.period === "Anual" ? "bg-blue-500/15 text-blue-300 border-blue-500/20" : "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25"}>{goal.period}</Badge>
+                        <h3 className="mt-3 text-xl font-black">{goal.title}</h3>
+                      </div>
+                      <Target className="text-volt-yellow" size={28} />
+                    </div>
+                    <p className="mt-2 text-sm text-zinc-500">{currency(goal.actual)} de {currency(goal.target)}</p>
+                    <p className={`mt-5 text-4xl font-black ${ok ? "text-volt-yellow" : "text-red-300"}`}>{percent(reached)}</p>
+                    <div className="mt-4"><ProgressBar value={reached} danger={isExpenseGoal && reached > 90} /></div>
+                    <p className="mt-4 text-sm leading-6 text-zinc-400">
+                      {isExpenseGoal
+                        ? `Limite restante: ${currency(Math.max(goal.target - goal.actual, 0))}.`
+                        : `Falta ${currency(Math.max(goal.target - goal.actual, 0))} para atingir o planejado.`}
+                    </p>
+                    {goal.notes && <p className="mt-2 text-xs leading-5 text-zinc-500">{goal.notes}</p>}
+                    <div className="mt-5 flex gap-2">
+                      <button onClick={() => openGoalEditor(goal)} className="btn-ghost flex-1">Editar</button>
+                      <button onClick={() => removeGoal(goal)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </section>
         )}
 
@@ -1050,6 +1257,7 @@ export default function FinanceiroPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  <button onClick={() => openTransactionEditor(selected)} className="btn-primary inline-flex items-center gap-2"><FileText size={17} /> Editar lançamento</button>
                   {(selected.type === "Receita" || selected.type === "Conta a receber") && selected.status !== "Recebido" && (
                     <button onClick={() => markTransactionAsDone(selected)} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Marcar recebido</button>
                   )}
@@ -1059,6 +1267,7 @@ export default function FinanceiroPage() {
                   {selected.status !== "Cancelado" && (
                     <button onClick={() => cancelTransaction(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Cancelar lançamento</button>
                   )}
+                  <button onClick={() => removeTransaction(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
                   <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
                 </div>
               </div>
@@ -1095,7 +1304,257 @@ export default function FinanceiroPage() {
             </div>
           </div>
         )}
+
+        {transactionEditOpen && transactionDraft && (
+          <TransactionEditorModal
+            draft={transactionDraft}
+            setDraft={setTransactionDraft}
+            onSave={saveTransaction}
+            onCancel={() => {
+              setTransactionEditOpen(false);
+              setTransactionDraft(null);
+            }}
+          />
+        )}
+
+        {goalEditOpen && goalDraft && (
+          <GoalEditorModal
+            draft={goalDraft}
+            setDraft={setGoalDraft}
+            onSave={saveGoal}
+            onCancel={() => {
+              setGoalEditOpen(false);
+              setGoalDraft(null);
+            }}
+          />
+        )}
+
       </div>
     </AppShell>
+  );
+}
+
+
+
+function TransactionEditorModal({
+  draft,
+  setDraft,
+  onSave,
+  onCancel
+}: {
+  draft: Transaction;
+  setDraft: Dispatch<SetStateAction<Transaction | null>>;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function setField<K extends keyof Transaction>(field: K, value: Transaction[K]) {
+    setDraft((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  const isIncome = draft.type === "Receita" || draft.type === "Conta a receber";
+  const isExpense = draft.type === "Despesa" || draft.type === "Conta a pagar";
+
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+        <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 md:flex-row md:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Lançamento financeiro</p>
+            <h2 className="mt-1 text-3xl font-black">Editar receita/despesa</h2>
+            <p className="mt-2 text-sm text-zinc-500">{draft.id}</p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onSave} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Salvar lançamento</button>
+            <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Tipo</span>
+            <select value={draft.type} onChange={(event) => {
+              const type = event.target.value as TransactionType;
+              const nextStatus: TransactionStatus = type === "Despesa" || type === "Conta a pagar" ? "Aberto" : "Aberto";
+              setDraft((current) => current ? { ...current, type, status: nextStatus } : current);
+            }} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Receita", "Despesa", "Conta a pagar", "Conta a receber"].map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Status</span>
+            <select value={draft.status} onChange={(event) => setField("status", event.target.value as TransactionStatus)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Aberto", "Pago", "Recebido", "Vencido", "Cancelado"].map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Título</span>
+            <input value={draft.title} onChange={(event) => setField("title", event.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" placeholder={isIncome ? "Ex: Serviço de instalação elétrica" : "Ex: Compra de materiais"} />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{isIncome ? "Cliente" : "Fornecedor"}</span>
+            <input value={draft.clientSupplier} onChange={(event) => setField("clientSupplier", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Categoria</span>
+            <input value={draft.category} onChange={(event) => setField("category", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Centro de custo</span>
+            <input value={draft.costCenter} onChange={(event) => setField("costCenter", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Forma de pagamento</span>
+            <select value={draft.paymentMethod} onChange={(event) => setField("paymentMethod", event.target.value)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Pix", "Dinheiro", "Cartão", "Boleto", "Transferência", "Débito", "Crédito", "Outro"].map((method) => <option key={method}>{method}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Valor orçado / previsto</span>
+            <input type="number" value={draft.budgeted} onChange={(event) => setField("budgeted", Number(event.target.value))} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Valor realizado</span>
+            <input type="number" value={draft.actual} onChange={(event) => setField("actual", Number(event.target.value))} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Competência</span>
+            <input type="date" value={draft.competenceDate} onChange={(event) => setField("competenceDate", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Vencimento</span>
+            <input type="date" value={draft.dueDate} onChange={(event) => setField("dueDate", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Data de pagamento/recebimento</span>
+            <input type="date" value={draft.paymentDate} onChange={(event) => setField("paymentDate", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Recorrência</span>
+            <select value={draft.recurrence} onChange={(event) => setField("recurrence", event.target.value)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Única", "Semanal", "Mensal", "Trimestral", "Anual"].map((recurrence) => <option key={recurrence}>{recurrence}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">OS vinculada</span>
+            <input value={draft.serviceOrder} onChange={(event) => setField("serviceOrder", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Cotação vinculada</span>
+            <input value={draft.quote} onChange={(event) => setField("quote", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Responsável</span>
+            <input value={draft.responsible} onChange={(event) => setField("responsible", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Observações</span>
+            <textarea value={draft.notes} onChange={(event) => setField("notes", event.target.value)} rows={4} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" />
+          </label>
+
+          <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4 md:col-span-2">
+            <p className="text-sm font-black text-volt-yellow">Resumo</p>
+            <p className="mt-2 text-sm leading-7 text-zinc-300">
+              {isIncome ? "Entrada prevista/recebida" : "Saída prevista/paga"} de <strong>{currency(draft.actual || draft.budgeted)}</strong>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GoalEditorModal({
+  draft,
+  setDraft,
+  onSave,
+  onCancel
+}: {
+  draft: FinancialGoal;
+  setDraft: Dispatch<SetStateAction<FinancialGoal | null>>;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function setField<K extends keyof FinancialGoal>(field: K, value: FinancialGoal[K]) {
+    setDraft((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+        <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 md:flex-row md:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Meta financeira</p>
+            <h2 className="mt-1 text-3xl font-black">Editar meta</h2>
+            <p className="mt-2 text-sm text-zinc-500">{draft.id}</p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onSave} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Salvar meta</button>
+            <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Nome da meta</span>
+            <input value={draft.title} onChange={(event) => setField("title", event.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" placeholder="Ex: Meta mensal de faturamento" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Período</span>
+            <select value={draft.period} onChange={(event) => setField("period", event.target.value as GoalPeriod)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Mensal", "Anual"].map((period) => <option key={period}>{period}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Categoria</span>
+            <select value={draft.category} onChange={(event) => setField("category", event.target.value as GoalCategory)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Faturamento", "Lucro", "Despesa", "Personalizada"].map((category) => <option key={category}>{category}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Valor planejado</span>
+            <input type="number" value={draft.target} onChange={(event) => setField("target", Number(event.target.value))} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Valor realizado atual</span>
+            <input type="number" value={draft.actual} onChange={(event) => setField("actual", Number(event.target.value))} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Observações</span>
+            <textarea value={draft.notes} onChange={(event) => setField("notes", event.target.value)} rows={4} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" placeholder="Ex: Meta do mês considerando serviços residenciais e comerciais." />
+          </label>
+
+          <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4 md:col-span-2">
+            <p className="text-sm font-black text-volt-yellow">Progresso</p>
+            <p className="mt-2 text-sm leading-7 text-zinc-300">
+              {draft.target ? percent((draft.actual / draft.target) * 100) : "0%"} concluído.
+            </p>
+            <div className="mt-3"><ProgressBar value={draft.target ? (draft.actual / draft.target) * 100 : 0} danger={draft.category === "Despesa" && draft.target > 0 && (draft.actual / draft.target) * 100 > 90} /></div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
