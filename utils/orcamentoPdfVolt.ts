@@ -48,6 +48,9 @@ export type OrcamentoPdfData = {
   companyCity?: string;
   companyWebsite?: string;
   logoSrc?: string;
+
+  signingUrl?: string;
+  documentPurpose?: "approval" | "final";
 };
 
 function brl(value: number) {
@@ -139,6 +142,32 @@ function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackN
     <div class="signature-doc">Aguardando assinatura digital</div>
   `;
 }
+
+
+function qrCodeUrl(value?: string) {
+  if (!value) return "";
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data=${encodeURIComponent(value)}`;
+}
+
+function approvalBlock(data: OrcamentoPdfData) {
+  if (!data.signingUrl || data.documentPurpose === "final") return "";
+
+  return `
+    <section class="approval-box">
+      <div class="approval-text">
+        <div class="approval-kicker">Aprovação digital</div>
+        <h2>Para aprovar e assinar este orçamento</h2>
+        <p>Abra o link abaixo pelo celular ou escaneie o QR Code. O cliente não precisa acessar o sistema da Volt.</p>
+        <div class="approval-link">${safe(data.signingUrl)}</div>
+      </div>
+      <div class="approval-qr">
+        <img src="${qrCodeUrl(data.signingUrl)}" alt="QR Code para assinatura" />
+        <span>Escaneie para assinar</span>
+      </div>
+    </section>
+  `;
+}
+
 
 export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
   const subtotal = data.items.reduce((sum, item) => sum + rowTotal(item), 0);
@@ -715,6 +744,71 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       padding-right: 4mm;
     }
 
+    .approval-box {
+      margin-top: 5mm;
+      display: grid;
+      grid-template-columns: 1fr 34mm;
+      gap: 5mm;
+      align-items: center;
+      border: 1px solid rgba(255, 203, 47, .65);
+      border-radius: 3mm;
+      background: rgba(255, 203, 47, .08);
+      padding: 4mm;
+    }
+
+    .approval-kicker {
+      color: #ffcb2f;
+      font-size: 3mm;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 1.3px;
+    }
+
+    .approval-text h2 {
+      margin: 1.5mm 0 1mm;
+      color: #fff;
+      font-size: 5mm;
+      line-height: 1.1;
+      text-transform: uppercase;
+    }
+
+    .approval-text p {
+      margin: 0;
+      color: #d8d8d8;
+      font-size: 3mm;
+      line-height: 1.4;
+    }
+
+    .approval-link {
+      margin-top: 2.5mm;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 2mm;
+      background: rgba(0,0,0,.45);
+      padding: 2.2mm;
+      color: #ffcb2f;
+      font-size: 2.6mm;
+      line-height: 1.25;
+      word-break: break-all;
+    }
+
+    .approval-qr {
+      display: grid;
+      place-items: center;
+      gap: 1.5mm;
+      color: #fff;
+      font-size: 2.5mm;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .approval-qr img {
+      width: 30mm;
+      height: 30mm;
+      border-radius: 2mm;
+      background: #fff;
+      padding: 1.5mm;
+    }
+
     .signature-message {
       margin-top: 5mm;
       display: flex;
@@ -1084,6 +1178,8 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
           </div>
         </div>
       </section>
+
+      ${approvalBlock(data)}
 
       <div class="signature-message">
         <span class="shield">✓</span>
