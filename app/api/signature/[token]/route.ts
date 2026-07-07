@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 type SignaturePayload = {
   signerName: string;
   signatureMode: "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
+  signatureStyle?: "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
   signatureDataUrl?: string;
   acceptedTerms: boolean;
 };
@@ -146,6 +147,7 @@ export async function POST(
     const signature = {
       signerName: payload.signerName.trim(),
       mode: payload.signatureMode,
+      signatureStyle: payload.signatureStyle || "Clássica",
       signedAt: now.slice(0, 10),
       signatureDataUrl: payload.signatureDataUrl || "",
       acceptedTerms: true
