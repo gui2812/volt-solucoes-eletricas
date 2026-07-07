@@ -91,6 +91,82 @@ export async function GET(
   }
 }
 
+
+async function sendSignedConfirmationEmail({
+  to,
+  clientName,
+  quoteId,
+  quoteTitle,
+  signedAt,
+  signingUrl
+}: {
+  to?: string;
+  clientName?: string;
+  quoteId: string;
+  quoteTitle?: string;
+  signedAt: string;
+  signingUrl: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM || "Volt Soluções Elétricas <onboarding@resend.dev>";
+  const replyTo = process.env.EMAIL_REPLY_TO || "solucoeseletricasvolt@gmail.com";
+
+  if (!apiKey || !to) {
+    return { skipped: true };
+  }
+
+  const html = `
+    <div style="margin:0;padding:0;background:#050505;color:#ffffff;font-family:Arial,Helvetica,sans-serif;">
+      <div style="max-width:680px;margin:0 auto;padding:28px;">
+        <div style="border:1px solid rgba(34,197,94,.45);border-radius:24px;background:#080c11;padding:28px;">
+          <div style="font-size:12px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#22c55e;">
+            Orçamento assinado
+          </div>
+
+          <h1 style="margin:12px 0 8px;font-size:30px;line-height:1.15;color:#ffffff;">
+            Assinatura registrada com sucesso
+          </h1>
+
+          <p style="margin:0 0 22px;color:#d4d4d8;font-size:15px;line-height:1.7;">
+            Olá, <strong>${clientName || "Cliente"}</strong>. Recebemos sua aprovação e assinatura digital do orçamento <strong>${quoteId}</strong>.
+          </p>
+
+          <div style="border:1px solid rgba(255,255,255,.12);border-radius:18px;background:#000000;padding:18px;margin:20px 0;">
+            <p style="margin:0;color:#ffffff;font-size:16px;font-weight:700;">${quoteTitle || "Orçamento Volt Soluções Elétricas"}</p>
+            <p style="margin:10px 0 0;color:#d4d4d8;font-size:14px;">Data da assinatura: <strong>${signedAt}</strong></p>
+          </div>
+
+          <a href="${signingUrl}" target="_blank" style="display:block;text-align:center;text-decoration:none;background:#22c55e;color:#050505;border-radius:16px;padding:16px 20px;font-weight:900;font-size:16px;">
+            Ver orçamento assinado
+          </a>
+
+          <p style="margin:24px 0 0;color:#71717a;font-size:12px;line-height:1.6;">
+            A Volt Soluções Elétricas também recebeu essa confirmação e poderá gerar a cópia final assinada em PDF.
+          </p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      reply_to: replyTo,
+      subject: `Orçamento ${quoteId} assinado - Volt Soluções Elétricas`,
+      html
+    })
+  });
+
+  return { ok: true };
+}
+
+
 export async function POST(
   request: Request,
   { params }: { params: { token: string } }
