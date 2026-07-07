@@ -324,7 +324,32 @@ function currency(value: number) {
 }
 
 function percent(value: number) {
+  if (!Number.isFinite(value)) return "0%";
   return `${Math.round(value)}%`;
+}
+
+function getMonthKey(dateText: string) {
+  if (!dateText) return "Sem data";
+
+  return dateText.slice(0, 7);
+}
+
+function getMonthLabel(monthKey: string) {
+  if (monthKey === "Sem data") return "Sem data";
+
+  const [year, month] = monthKey.split("-");
+
+  if (!year || !month) return monthKey;
+
+  const date = new Date(Number(year), Number(month) - 1, 1);
+
+  return date.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }).replace(".", "");
+}
+
+function safeProgress(value: number, total: number) {
+  if (!total) return 0;
+
+  return (value / total) * 100;
 }
 
 function Badge({ className, children }: { className: string; children: React.ReactNode }) {
@@ -740,6 +765,116 @@ export default function FinanceiroPage() {
     return { receitaRealizada, despesasRealizadas, receber, pagar, vencido, saldo, margem, metaAtingida, ticketMedio, metaMensal };
   }, [filtered, goals]);
 
+  const financeAnalytics = useMemo(() => {
+    const activeTransactions = filtered.filter((item) => item.status !== "Cancelado");
+
+    const centerMap = new Map<string, {
+      name: string;
+      budgeted: number;
+      actual: number;
+      open: number;
+      entries: number;
+      exits: number;
+      count: number;
+    }>();
+
+    activeTransactions.forEach((item) => {
+      const key = item.costCenter || "Sem centro de custo";
+      const current = centerMap.get(key) ?? {
+        name: key,
+        budgeted: 0,
+        actual: 0,
+        open: 0,
+        entries: 0,
+        exits: 0,
+        count: 0
+      };
+
+      const isIncome = item.type === "Receita" || item.type === "Conta a receber";
+      const isExpense = item.type === "Despesa" || item.type === "Conta a pagar";
+      const actualValue = Number(item.actual || 0);
+      const budgetedValue = Number(item.budgeted || 0);
+      const openValue = Math.max(budgetedValue - actualValue, 0);
+
+      current.budgeted += budgetedValue;
+      current.actual += actualValue;
+      current.open += openValue;
+      current.entries += isIncome ? actualValue : 0;
+      current.exits += isExpense ? actualValue : 0;
+      current.count += 1;
+
+      centerMap.set(key, current);
+    });
+
+    const costCenters = Array.from(centerMap.values())
+      .sort((a, b) => b.budgeted - a.budgeted);
+
+    const monthlyMap = new Map<string, {
+      month: string;
+      budgeted: number;
+      actual: number;
+      income: number;
+      expenses: number;
+      open: number;
+      balance: number;
+    }>();
+
+    activeTransactions.forEach((item) => {
+      const key = getMonthKey(item.competenceDate || item.dueDate);
+      const current = monthlyMap.get(key) ?? {
+        month: key,
+        budgeted: 0,
+        actual: 0,
+        income: 0,
+        expenses: 0,
+        open: 0,
+        balance: 0
+      };
+
+      const isIncome = item.type === "Receita" || item.type === "Conta a receber";
+      const isExpense = item.type === "Despesa" || item.type === "Conta a pagar";
+      const actualValue = Number(item.actual || 0);
+      const budgetedValue = Number(item.budgeted || 0);
+
+      current.budgeted += budgetedValue;
+      current.actual += actualValue;
+      current.open += Math.max(budgetedValue - actualValue, 0);
+      current.income += isIncome ? (actualValue || budgetedValue) : 0;
+      current.expenses += isExpense ? (actualValue || budgetedValue) : 0;
+      current.balance = current.income - current.expenses;
+
+      monthlyMap.set(key, current);
+    });
+
+    const budgetRows = Array.from(monthlyMap.values())
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    const cashFlowRows = budgetRows.map((row, index) => {
+      const previousBalance = budgetRows.slice(0, index).reduce((sum, item) => sum + item.balance, 0);
+      const finalBalance = previousBalance + row.balance;
+
+      return {
+        ...row,
+        previousBalance,
+        finalBalance
+      };
+    });
+
+    const maxCenter = Math.max(...costCenters.map((item) => item.budgeted), 1);
+    const maxBudget = Math.max(...budgetRows.map((item) => Math.max(item.budgeted, item.actual)), 1);
+    const maxFlow = Math.max(...cashFlowRows.map((item) => Math.max(item.income, item.expenses, Math.abs(item.finalBalance))), 1);
+
+    return {
+      activeTransactions,
+      costCenters,
+      budgetRows,
+      cashFlowRows,
+      maxCenter,
+      maxBudget,
+      maxFlow
+    };
+  }, [filtered]);
+
   function createTransaction(type: TransactionType) {
     const next = makeEmptyTransaction(type, transactions.length);
 
@@ -783,11 +918,28 @@ export default function FinanceiroPage() {
   }
 
   function removeTransaction(transaction: Transaction) {
-    if (!window.confirm("Excluir este lançamento financeiro?")) return;
+    if (!window.confirm(`Excluir o lançamento "${transaction.title}"?\n\nIsso remove o lançamento da lista, do centro de custo, do orçado x realizado e do fluxo de caixa.`)) return;
 
-    setTransactions((current) => current.filter((item) => item.id !== transaction.id));
+    setTransactions((current) => {
+      const next = current.filter((item) => item.id !== transaction.id);
+      localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+
+    setSelected((current) => current?.id === transaction.id ? null : current);
+    setModalOpen(false);
+  }
+
+  function clearAllTransactions() {
+    if (!window.confirm("Apagar TODOS os lançamentos financeiros?\n\nCentro de custo, orçado x realizado e fluxo de caixa serão zerados.")) return;
+
+    setTransactions([]);
     setSelected(null);
     setModalOpen(false);
+    localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify([]));
+    localStorage.removeItem(FINANCE_QUEUE_KEY);
+
+    alert("Financeiro zerado. Os gráficos e centros de custo agora ficam vazios até novos lançamentos serem cadastrados.");
   }
 
   function createGoal() {
@@ -918,6 +1070,7 @@ export default function FinanceiroPage() {
               <button onClick={() => createTransaction("Conta a pagar")} className="btn-ghost inline-flex items-center justify-center gap-2"><CreditCard size={17} /> Nova conta a pagar</button>
               <button onClick={createGoal} className="btn-ghost inline-flex items-center justify-center gap-2"><Target size={17} /> Nova meta</button>
               <button onClick={forceSyncFinance} className="btn-ghost inline-flex items-center justify-center gap-2"><Wallet size={17} /> Atualizar lançamentos</button>
+              <button onClick={clearAllTransactions} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Limpar lançamentos</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
               <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
             </div>
@@ -1054,6 +1207,7 @@ export default function FinanceiroPage() {
                         <div className="flex gap-3">
                           <button onClick={() => { setSelected(item); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Detalhes</button>
                           <button onClick={() => openTransactionEditor(item)} className="text-xs font-black text-zinc-300 hover:text-volt-yellow">Editar</button>
+                          <button onClick={() => removeTransaction(item)} className="text-xs font-black text-red-300 hover:text-red-200">Excluir</button>
                         </div>
                       </td>
                     </tr>
@@ -1071,47 +1225,81 @@ export default function FinanceiroPage() {
         {activeTab === "Centro de Custo" && (
           <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
             <div className="grid gap-4">
-              {costCentersSeed.map((center) => {
-                const consumed = (center.monthlyActual / center.monthlyBudget) * 100;
+              {financeAnalytics.costCenters.map((center) => {
+                const consumed = safeProgress(center.actual, center.budgeted);
                 const status = consumed >= 100 ? "Estourado" : consumed >= 90 ? "Atenção" : "OK";
+
                 return (
-                  <article key={center.code} className="card-premium rounded-[2rem] p-5">
+                  <article key={center.name} className="card-premium rounded-[2rem] p-5">
                     <div className="mb-4 flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-sm font-black text-volt-yellow">{center.code}</p>
+                        <p className="text-sm font-black text-volt-yellow">{center.count} lançamento(s)</p>
                         <h3 className="mt-1 text-xl font-black">{center.name}</h3>
-                        <p className="mt-1 text-sm text-zinc-500">{center.type} • {center.responsible}</p>
+                        <p className="mt-1 text-sm text-zinc-500">Entradas {currency(center.entries)} • Saídas {currency(center.exits)}</p>
                       </div>
                       <Badge className={status === "OK" ? "bg-volt-ok/15 text-volt-ok border-volt-ok/20" : status === "Atenção" ? "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25" : "bg-red-500/15 text-red-300 border-red-500/20"}>{status}</Badge>
                     </div>
+
                     <div className="mb-2 flex justify-between text-sm font-bold text-zinc-400">
-                      <span>{currency(center.monthlyActual)}</span>
-                      <span>{currency(center.monthlyBudget)}</span>
+                      <span>Realizado {currency(center.actual)}</span>
+                      <span>Orçado {currency(center.budgeted)}</span>
                     </div>
                     <ProgressBar value={consumed} danger={consumed >= 100} />
-                    <p className="mt-3 text-sm leading-6 text-zinc-500">{center.notes}</p>
+
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-xl border border-white/10 bg-black/35 p-3">
+                        <p className="text-zinc-500">Aberto</p>
+                        <p className="mt-1 font-black text-volt-yellow">{currency(center.open)}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/35 p-3">
+                        <p className="text-zinc-500">Entradas</p>
+                        <p className="mt-1 font-black text-volt-ok">{currency(center.entries)}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/35 p-3">
+                        <p className="text-zinc-500">Saídas</p>
+                        <p className="mt-1 font-black text-red-300">{currency(center.exits)}</p>
+                      </div>
+                    </div>
                   </article>
                 );
               })}
+
+              {financeAnalytics.costCenters.length === 0 && (
+                <div className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5 text-sm font-bold leading-7 text-zinc-400">
+                  Nenhum centro de custo para exibir. Quando apagar todos os lançamentos, esta tela fica zerada.
+                </div>
+              )}
             </div>
 
-            <ChartCard title="Orçado x realizado por centro" subtitle="Mostra quais áreas estão dentro, em atenção ou estouradas." icon={<BarChart3 size={25} />}>
+            <ChartCard title="Orçado x realizado por centro" subtitle="Agora calculado pelos lançamentos reais, não por valores fixos." icon={<BarChart3 size={25} />}>
               <div className="space-y-4">
-                {costCentersSeed.map((center) => {
-                  const consumed = (center.monthlyActual / center.monthlyBudget) * 100;
+                {financeAnalytics.costCenters.map((center) => {
+                  const budgetWidth = safeProgress(center.budgeted, financeAnalytics.maxCenter);
+                  const actualWidth = safeProgress(center.actual, financeAnalytics.maxCenter);
+
                   return (
-                    <div key={center.code} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                    <div key={center.name} className="rounded-2xl border border-white/10 bg-black/35 p-4">
                       <div className="mb-2 flex items-center justify-between">
                         <p className="font-black">{center.name}</p>
-                        <p className="text-sm font-black text-volt-yellow">{percent(consumed)}</p>
+                        <p className="text-sm font-black text-volt-yellow">{percent(safeProgress(center.actual, center.budgeted))}</p>
                       </div>
-                      <div className="flex gap-2">
-                        <div className="h-4 rounded-full bg-white/20" style={{ width: `${Math.min((center.monthlyBudget / 3200) * 100, 100)}%` }} />
-                        <div className="h-4 rounded-full bg-volt-yellow" style={{ width: `${Math.min((center.monthlyActual / 3200) * 100, 100)}%` }} />
+                      <div className="space-y-2">
+                        <div>
+                          <div className="mb-1 flex justify-between text-xs text-zinc-500"><span>Orçado</span><span>{currency(center.budgeted)}</span></div>
+                          <div className="h-3 rounded-full bg-white/10"><div className="h-full rounded-full bg-white/30" style={{ width: `${Math.min(budgetWidth, 100)}%` }} /></div>
+                        </div>
+                        <div>
+                          <div className="mb-1 flex justify-between text-xs text-zinc-500"><span>Realizado</span><span>{currency(center.actual)}</span></div>
+                          <div className="h-3 rounded-full bg-white/10"><div className="h-full rounded-full bg-volt-yellow" style={{ width: `${Math.min(actualWidth, 100)}%` }} /></div>
+                        </div>
                       </div>
                     </div>
                   );
                 })}
+
+                {financeAnalytics.costCenters.length === 0 && (
+                  <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm font-bold text-zinc-500">Sem dados para gráfico.</p>
+                )}
               </div>
             </ChartCard>
           </section>
@@ -1119,24 +1307,60 @@ export default function FinanceiroPage() {
 
         {activeTab === "Orçado x Realizado" && (
           <section className="grid gap-5 xl:grid-cols-2">
-            <ChartCard title="Comparativo mensal" subtitle="Receita orçada x receita realizada." icon={<BarChart3 size={25} />}>
-              <BudgetColumnChart />
+            <ChartCard title="Comparativo mensal" subtitle="Calculado pelos lançamentos reais do financeiro." icon={<BarChart3 size={25} />}>
+              <div className="space-y-4">
+                {financeAnalytics.budgetRows.map((item) => {
+                  const budgetWidth = safeProgress(item.budgeted, financeAnalytics.maxBudget);
+                  const actualWidth = safeProgress(item.actual, financeAnalytics.maxBudget);
+
+                  return (
+                    <div key={item.month} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <p className="font-black">{getMonthLabel(item.month)}</p>
+                        <p className="text-sm font-black text-volt-yellow">{currency(item.actual)} / {currency(item.budgeted)}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <div>
+                          <div className="mb-1 flex justify-between text-xs text-zinc-500"><span>Orçado</span><span>{currency(item.budgeted)}</span></div>
+                          <div className="h-3 rounded-full bg-white/10"><div className="h-full rounded-full bg-white/30" style={{ width: `${Math.min(budgetWidth, 100)}%` }} /></div>
+                        </div>
+                        <div>
+                          <div className="mb-1 flex justify-between text-xs text-zinc-500"><span>Realizado</span><span>{currency(item.actual)}</span></div>
+                          <div className="h-3 rounded-full bg-white/10"><div className="h-full rounded-full bg-volt-yellow" style={{ width: `${Math.min(actualWidth, 100)}%` }} /></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {financeAnalytics.budgetRows.length === 0 && (
+                  <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm font-bold text-zinc-500">Sem lançamentos para comparar.</p>
+                )}
+              </div>
             </ChartCard>
 
-            <ChartCard title="Diferenças principais" subtitle="Variação em R$ e percentual." icon={<Gauge size={25} />}>
+            <ChartCard title="Diferenças principais" subtitle="Variação em R$ e percentual por competência." icon={<Gauge size={25} />}>
               <div className="space-y-4">
-                {monthlyData.map((item) => {
-                  const diff = item.receita - item.orcado;
-                  const diffPercent = (diff / item.orcado) * 100;
+                {financeAnalytics.budgetRows.map((item) => {
+                  const diff = item.actual - item.budgeted;
+                  const diffPercent = safeProgress(diff, item.budgeted);
+
                   return (
                     <div key={item.month} className="rounded-2xl border border-white/10 bg-black/35 p-4">
                       <div className="flex items-center justify-between gap-4">
-                        <p className="font-black">{item.month}</p>
+                        <div>
+                          <p className="font-black">{getMonthLabel(item.month)}</p>
+                          <p className="mt-1 text-xs text-zinc-500">Aberto {currency(item.open)}</p>
+                        </div>
                         <p className={`font-black ${diff >= 0 ? "text-volt-ok" : "text-red-300"}`}>{currency(diff)} • {percent(diffPercent)}</p>
                       </div>
                     </div>
                   );
                 })}
+
+                {financeAnalytics.budgetRows.length === 0 && (
+                  <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm font-bold text-zinc-500">Sem diferenças para exibir.</p>
+                )}
               </div>
             </ChartCard>
           </section>
@@ -1189,21 +1413,61 @@ export default function FinanceiroPage() {
 
         {activeTab === "Fluxo de Caixa" && (
           <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
-            <ChartCard title="Cascata do caixa" subtitle="Saldo inicial + receitas - despesas - impostos = saldo final." icon={<BarChart3 size={25} />}>
-              <CashFlowWaterfall />
+            <ChartCard title="Fluxo de caixa real/projetado" subtitle="Entradas e saídas calculadas pelos lançamentos do financeiro." icon={<BarChart3 size={25} />}>
+              <div className="space-y-4">
+                {financeAnalytics.cashFlowRows.map((item) => {
+                  const incomeWidth = safeProgress(item.income, financeAnalytics.maxFlow);
+                  const expenseWidth = safeProgress(item.expenses, financeAnalytics.maxFlow);
+
+                  return (
+                    <div key={item.month} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-black">{getMonthLabel(item.month)}</p>
+                          <p className="mt-1 text-xs text-zinc-500">Saldo final {currency(item.finalBalance)}</p>
+                        </div>
+                        <p className={`font-black ${item.balance >= 0 ? "text-volt-ok" : "text-red-300"}`}>{currency(item.balance)}</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div>
+                          <div className="mb-1 flex justify-between text-xs text-zinc-500"><span>Entradas</span><span>{currency(item.income)}</span></div>
+                          <div className="h-3 rounded-full bg-white/10"><div className="h-full rounded-full bg-volt-ok" style={{ width: `${Math.min(incomeWidth, 100)}%` }} /></div>
+                        </div>
+                        <div>
+                          <div className="mb-1 flex justify-between text-xs text-zinc-500"><span>Saídas</span><span>{currency(item.expenses)}</span></div>
+                          <div className="h-3 rounded-full bg-white/10"><div className="h-full rounded-full bg-red-400" style={{ width: `${Math.min(expenseWidth, 100)}%` }} /></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {financeAnalytics.cashFlowRows.length === 0 && (
+                  <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm font-bold text-zinc-500">Fluxo zerado. Cadastre receitas/despesas para preencher.</p>
+                )}
+              </div>
             </ChartCard>
 
-            <ChartCard title="Projeção" subtitle="Entradas, saídas e saldo estimado para os próximos meses." icon={<TrendingUp size={25} />}>
+            <ChartCard title="Resumo do caixa" subtitle="Entradas, saídas e saldo acumulado." icon={<TrendingUp size={25} />}>
               <div className="space-y-4">
-                {["Jul", "Ago", "Set", "Out"].map((month, index) => (
-                  <div key={month} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                {[
+                  ["Entradas previstas/realizadas", financeAnalytics.cashFlowRows.reduce((sum, item) => sum + item.income, 0), "text-volt-ok"],
+                  ["Saídas previstas/realizadas", financeAnalytics.cashFlowRows.reduce((sum, item) => sum + item.expenses, 0), "text-red-300"],
+                  ["Saldo acumulado", financeAnalytics.cashFlowRows.reduce((sum, item) => sum + item.balance, 0), "text-volt-yellow"],
+                  ["Lançamentos considerados", financeAnalytics.activeTransactions.length, "text-zinc-300"]
+                ].map(([label, value, color]) => (
+                  <div key={label as string} className="rounded-2xl border border-white/10 bg-black/35 p-4">
                     <div className="flex items-center justify-between">
-                      <p className="font-black">{month}</p>
-                      <p className="text-lg font-black text-volt-yellow">{currency(14000 + index * 2500)}</p>
+                      <p className="font-black">{label as string}</p>
+                      <p className={`text-lg font-black ${color as string}`}>{typeof value === "number" && label !== "Lançamentos considerados" ? currency(value) : value}</p>
                     </div>
-                    <ProgressBar value={60 + index * 8} />
                   </div>
                 ))}
+
+                <button onClick={clearAllTransactions} className="w-full rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">
+                  Zerar financeiro
+                </button>
               </div>
             </ChartCard>
           </section>
