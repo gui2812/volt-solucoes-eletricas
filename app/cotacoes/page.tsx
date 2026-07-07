@@ -2,7 +2,7 @@
 
 import { AppShell } from "@/components/layout/app-shell";
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
-import { checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
+import { checkRemoteSignatureByToken, checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -292,6 +292,18 @@ function quoteCost(quote: Quote) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function extractSignatureToken(signatureUrl?: string) {
+  if (!signatureUrl) return "";
+
+  const cleanUrl = signatureUrl.trim();
+
+  if (!cleanUrl) return "";
+
+  const parts = cleanUrl.split("/").filter(Boolean);
+
+  return parts[parts.length - 1] || "";
 }
 
 function makeSignature(name: string, mode: SignatureMode, signatureDataUrl?: string, signatureStyle: SignatureStyle = "Clássica"): SignatureData {
@@ -873,11 +885,27 @@ export default function CotacoesPage() {
 
   async function checkRemoteSignature(quote: Quote) {
     try {
-      const result = await checkRemoteSignatureStatus(quote.id);
+      const token = quote.signatureToken || extractSignatureToken(quote.signatureUrl);
+
+      const result = token
+        ? await checkRemoteSignatureByToken(token)
+        : await checkRemoteSignatureStatus(quote.id);
 
       if (!result.found) {
-        alert("Ainda não existe link de assinatura para este orçamento.");
-        return;
+        const byQuote = await checkRemoteSignatureStatus(quote.id);
+
+        if (!byQuote.found) {
+          alert("Ainda não encontrei assinatura salva para este orçamento. Clique em Enviar assinatura novamente e use o novo link gerado.");
+          return;
+        }
+
+        result.found = byQuote.found;
+        result.status = byQuote.status;
+        result.token = byQuote.token;
+        result.signingUrl = byQuote.signingUrl;
+        result.signedAt = byQuote.signedAt;
+        result.expiresAt = byQuote.expiresAt;
+        result.clientSignature = byQuote.clientSignature;
       }
 
       const remoteStatus: RemoteSignatureStatus =
@@ -904,6 +932,10 @@ export default function CotacoesPage() {
           ? "Aprovada"
           : quote.status;
 
+      const historyMessage = result.status === "signed"
+        ? `Assinatura confirmada em ${new Date().toLocaleDateString("pt-BR")}`
+        : `Status da assinatura verificado em ${new Date().toLocaleDateString("pt-BR")}: ${remoteStatus}`;
+
       setQuotes((current) => current.map((item) => {
         if (item.id !== quote.id) return item;
 
@@ -911,11 +943,13 @@ export default function CotacoesPage() {
           ...item,
           status: newStatus,
           signatureStatus: remoteStatus,
+          signatureToken: result.token || item.signatureToken,
+          signatureUrl: result.signingUrl || item.signatureUrl,
           signedAt: result.signedAt || item.signedAt,
           clientSignature,
-          history: result.status === "signed"
-            ? [...item.history, `Assinatura confirmada em ${new Date().toLocaleDateString("pt-BR")}`]
-            : item.history
+          history: item.history.includes(historyMessage)
+            ? item.history
+            : [...item.history, historyMessage]
         };
       }));
 
@@ -926,11 +960,13 @@ export default function CotacoesPage() {
           ...current,
           status: newStatus,
           signatureStatus: remoteStatus,
+          signatureToken: result.token || current.signatureToken,
+          signatureUrl: result.signingUrl || current.signatureUrl,
           signedAt: result.signedAt || current.signedAt,
           clientSignature,
-          history: result.status === "signed"
-            ? [...current.history, `Assinatura confirmada em ${new Date().toLocaleDateString("pt-BR")}`]
-            : current.history
+          history: current.history.includes(historyMessage)
+            ? current.history
+            : [...current.history, historyMessage]
         };
       });
 
