@@ -24,7 +24,7 @@ import {
   Wallet,
   Zap
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 
 type ClientStatus = "Lead" | "Ativo" | "Inativo" | "Inadimplente" | "Recorrente" | "Em negociação" | "Bloqueado";
 type ClientType = "Pessoa física" | "Pessoa jurídica" | "Condomínio" | "Empresa" | "Loja" | "Escritório" | "Residencial";
@@ -423,6 +423,250 @@ function ClientComposition() {
   );
 }
 
+
+const CLIENTS_STORAGE_KEY = "volt_clientes_crm_v1";
+const QUOTES_STORAGE_KEY = "volt_cotacoes_premium_v1";
+const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
+const AGENDA_STORAGE_KEY = "volt_agenda_premium_v1";
+const FINANCE_STORAGE_KEY = "volt_financeiro_premium_v1";
+
+function readArrayFromStorage(key: string) {
+  if (typeof window === "undefined") return [] as Record<string, unknown>[];
+
+  try {
+    const saved = localStorage.getItem(key);
+    const parsed = saved ? JSON.parse(saved) : [];
+
+    return Array.isArray(parsed) ? parsed as Record<string, unknown>[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function readClientsFromStorage() {
+  const saved = readArrayFromStorage(CLIENTS_STORAGE_KEY);
+
+  return saved.length ? saved as unknown as Client[] : clientsSeed;
+}
+
+function textValue(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizePhone(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function clientKey(client: Pick<Client, "name" | "phone" | "email">) {
+  const phone = normalizePhone(client.phone);
+
+  if (phone) return `phone:${phone}`;
+  if (client.email) return `email:${client.email.toLowerCase()}`;
+
+  return `name:${client.name.toLowerCase().trim()}`;
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function makeClientFromPartial(partial: Partial<Client> & { name: string }) {
+  const name = partial.name || "Cliente não informado";
+  const phone = partial.phone || "";
+
+  return {
+    id: partial.id || `CLI-${String(Date.now()).slice(-6)}`,
+    name,
+    fantasyName: partial.fantasyName || name,
+    type: partial.type || "Pessoa física",
+    document: partial.document || "Pendente",
+    status: partial.status || "Ativo",
+    category: partial.category || "Cliente integrado",
+    origin: partial.origin || "Sistema Volt",
+    phone,
+    whatsapp: partial.whatsapp || phone,
+    email: partial.email || "",
+    neighborhood: partial.neighborhood || "A definir",
+    city: partial.city || "São Paulo/SP",
+    address: partial.address || "",
+    responsible: partial.responsible || "Guilherme Santana",
+    serviceInterest: partial.serviceInterest || "A definir",
+    recurrence: partial.recurrence || "Sob demanda",
+    totalOs: partial.totalOs || 0,
+    totalQuotes: partial.totalQuotes || 0,
+    totalVisits: partial.totalVisits || 0,
+    totalRevenue: partial.totalRevenue || 0,
+    received: partial.received || 0,
+    openAmount: partial.openAmount || 0,
+    overdue: partial.overdue || 0,
+    lastService: partial.lastService || "Sem atendimento",
+    nextService: partial.nextService || "A definir",
+    ticketAverage: partial.ticketAverage || 0,
+    rating: partial.rating || "Comum",
+    notes: partial.notes || "",
+    timeline: partial.timeline || [],
+    documents: partial.documents || []
+  } as Client;
+}
+
+function mergeClientCollections(...collections: Client[][]) {
+  const map = new Map<string, Client>();
+
+  collections.flat().forEach((client) => {
+    const key = clientKey(client);
+    const current = map.get(key);
+
+    if (!current) {
+      map.set(key, client);
+      return;
+    }
+
+    const totalOs = Math.max(current.totalOs || 0, client.totalOs || 0);
+    const totalQuotes = Math.max(current.totalQuotes || 0, client.totalQuotes || 0);
+    const totalVisits = Math.max(current.totalVisits || 0, client.totalVisits || 0);
+    const totalRevenue = Math.max(current.totalRevenue || 0, client.totalRevenue || 0);
+    const received = Math.max(current.received || 0, client.received || 0);
+    const openAmount = Math.max(current.openAmount || 0, client.openAmount || 0);
+    const overdue = Math.max(current.overdue || 0, client.overdue || 0);
+    const totalServices = Math.max(totalOs, 1);
+
+    map.set(key, {
+      ...current,
+      ...client,
+      id: current.id,
+      name: current.name || client.name,
+      fantasyName: current.fantasyName || client.fantasyName,
+      document: current.document && current.document !== "Pendente" ? current.document : client.document,
+      phone: current.phone || client.phone,
+      whatsapp: current.whatsapp || client.whatsapp,
+      email: current.email || client.email,
+      address: current.address || client.address,
+      totalOs,
+      totalQuotes,
+      totalVisits,
+      totalRevenue,
+      received,
+      openAmount,
+      overdue,
+      ticketAverage: totalRevenue / totalServices,
+      status: overdue > 0 ? "Inadimplente" : client.status || current.status,
+      rating: overdue > 0 ? "Inadimplente" : totalRevenue >= 10000 ? "Estratégico" : totalOs >= 3 ? "Recorrente" : current.rating,
+      timeline: unique([...(current.timeline || []), ...(client.timeline || [])]),
+      documents: unique([...(current.documents || []), ...(client.documents || [])])
+    });
+  });
+
+  return Array.from(map.values());
+}
+
+function quoteTotal(record: Record<string, unknown>) {
+  const items = Array.isArray(record.items) ? record.items as Record<string, unknown>[] : [];
+
+  return items.reduce((sum, item) => {
+    const quantity = numberValue(item.quantity, 0);
+    const unitPrice = numberValue(item.unitPrice, 0);
+    const discount = numberValue(item.discount, 0);
+
+    return sum + quantity * unitPrice * (1 - discount / 100);
+  }, 0);
+}
+
+function buildClientsFromSystem() {
+  const clientsFromQuotes = readArrayFromStorage(QUOTES_STORAGE_KEY)
+    .filter((quote) => textValue(quote.client))
+    .map((quote) => makeClientFromPartial({
+      name: textValue(quote.client),
+      phone: textValue(quote.phone),
+      whatsapp: textValue(quote.phone),
+      email: textValue(quote.email),
+      address: textValue(quote.address),
+      serviceInterest: textValue(quote.title, textValue(quote.serviceType, "Orçamento")),
+      status: textValue(quote.status) === "Convertida em OS" || textValue(quote.status) === "Aprovada" ? "Ativo" : "Em negociação",
+      totalQuotes: 1,
+      totalRevenue: quoteTotal(quote),
+      openAmount: quoteTotal(quote),
+      lastService: textValue(quote.createdAt, "Sem atendimento"),
+      notes: "Cliente identificado automaticamente em orçamento.",
+      timeline: [`Orçamento ${textValue(quote.id, "")} criado/importado`]
+    }));
+
+  const clientsFromOrders = readArrayFromStorage(ORDERS_STORAGE_KEY)
+    .filter((order) => textValue(order.client))
+    .map((order) => {
+      const value = numberValue(order.value, 0);
+      const paid = numberValue(order.paid, 0);
+      const open = Math.max(value - paid, 0);
+
+      return makeClientFromPartial({
+        name: textValue(order.client),
+        phone: textValue(order.phone),
+        whatsapp: textValue(order.phone),
+        address: textValue(order.address),
+        serviceInterest: textValue(order.title, textValue(order.type, "Ordem de serviço")),
+        status: open > 0 ? "Ativo" : "Recorrente",
+        totalOs: 1,
+        totalRevenue: value,
+        received: paid,
+        openAmount: open,
+        lastService: textValue(order.date, "Sem atendimento"),
+        notes: "Cliente identificado automaticamente em OS.",
+        timeline: [`OS ${textValue(order.id, "")} vinculada`]
+      });
+    });
+
+  const clientsFromAgenda = readArrayFromStorage(AGENDA_STORAGE_KEY)
+    .filter((appointment) => textValue(appointment.client))
+    .map((appointment) => makeClientFromPartial({
+      name: textValue(appointment.client),
+      phone: textValue(appointment.phone),
+      whatsapp: textValue(appointment.phone),
+      address: textValue(appointment.address),
+      serviceInterest: textValue(appointment.title, textValue(appointment.type, "Agenda")),
+      status: textValue(appointment.status) === "Cancelado" ? "Inativo" : "Ativo",
+      totalVisits: 1,
+      totalRevenue: numberValue(appointment.value, 0),
+      nextService: textValue(appointment.date, "A definir"),
+      notes: "Cliente identificado automaticamente em agenda.",
+      timeline: [`Agenda ${textValue(appointment.id, "")} vinculada`]
+    }));
+
+  const clientsFromFinance = readArrayFromStorage(FINANCE_STORAGE_KEY)
+    .filter((transaction) => textValue(transaction.clientSupplier))
+    .filter((transaction) => ["Receita", "Conta a receber"].includes(textValue(transaction.type)))
+    .map((transaction) => {
+      const budgeted = numberValue(transaction.budgeted, 0);
+      const actual = numberValue(transaction.actual, 0);
+      const isReceived = textValue(transaction.status) === "Recebido";
+      const open = isReceived ? 0 : Math.max(budgeted - actual, 0);
+      const overdue = textValue(transaction.status) === "Vencido" ? open || budgeted : 0;
+
+      return makeClientFromPartial({
+        name: textValue(transaction.clientSupplier),
+        serviceInterest: textValue(transaction.title, "Financeiro"),
+        status: overdue > 0 ? "Inadimplente" : "Ativo",
+        totalRevenue: budgeted,
+        received: actual,
+        openAmount: open,
+        overdue,
+        lastService: textValue(transaction.competenceDate, "Sem atendimento"),
+        notes: "Cliente identificado automaticamente no financeiro.",
+        timeline: [`Financeiro ${textValue(transaction.id, "")} vinculado`]
+      });
+    });
+
+  return mergeClientCollections(
+    clientsFromQuotes,
+    clientsFromOrders,
+    clientsFromAgenda,
+    clientsFromFinance
+  );
+}
+
+
 export default function ClientesPage() {
   const [clients, setClients] = useState<Client[]>(clientsSeed);
   const [leads, setLeads] = useState<Lead[]>(leadsSeed);
@@ -433,71 +677,45 @@ export default function ClientesPage() {
   const [selected, setSelected] = useState<Client | null>(clientsSeed[0]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [draft, setDraft] = useState<EditableRecord | null>(null);
-  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Client | null>(null);
   const [storageReady, setStorageReady] = useState(false);
 
-  useEffect(() => {
+  function syncClientsFromStorage() {
     try {
-      const saved = localStorage.getItem("volt_clientes_premium_v1");
-      if (saved) {
-        const parsed = JSON.parse(saved) as { clients?: Client[]; leads?: Lead[] };
-        if (Array.isArray(parsed.clients)) {
-          setClients(parsed.clients);
-          setSelected(parsed.clients[0] ?? null);
-        }
-        if (Array.isArray(parsed.leads)) setLeads(parsed.leads);
-      }
+      const savedClients = readClientsFromStorage();
+      const integratedClients = buildClientsFromSystem();
+      const merged = mergeClientCollections(savedClients, integratedClients);
+
+      setClients(merged);
+      setSelected((current) => current ? merged.find((item) => item.id === current.id) ?? merged[0] ?? null : merged[0] ?? null);
+      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(merged));
     } catch {
       setClients(clientsSeed);
-      setLeads(leadsSeed);
     } finally {
       setStorageReady(true);
     }
+  }
+
+  useEffect(() => {
+    syncClientsFromStorage();
+
+    window.addEventListener("storage", syncClientsFromStorage);
+    window.addEventListener("volt:ordem-criada", syncClientsFromStorage);
+    window.addEventListener("volt:financeiro-lancamento-criado", syncClientsFromStorage);
+    window.addEventListener("volt:agenda-compromisso-criado", syncClientsFromStorage);
+
+    return () => {
+      window.removeEventListener("storage", syncClientsFromStorage);
+      window.removeEventListener("volt:ordem-criada", syncClientsFromStorage);
+      window.removeEventListener("volt:financeiro-lancamento-criado", syncClientsFromStorage);
+      window.removeEventListener("volt:agenda-compromisso-criado", syncClientsFromStorage);
+    };
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
-    localStorage.setItem("volt_clientes_premium_v1", JSON.stringify({ clients, leads }));
-  }, [storageReady, clients, leads]);
-
-  function getRecordKey(item: Client) {
-    return item.id;
-  }
-
-  function openEditor(item: Client) {
-    setEditingKey(getRecordKey(item));
-    setDraft({ ...item } as unknown as EditableRecord);
-    setEditOpen(true);
-  }
-
-  function saveEditor() {
-    if (!draft) return;
-    const next = draft as unknown as Client;
-    setClients((current) => current.map((item) => getRecordKey(item) === editingKey ? next : item));
-    setSelected(next);
-    setEditOpen(false);
-  }
-
-  function duplicateSelected() {
-    if (!selected) return;
-    const copy: Client = { ...selected, id: `CLI-${String(clients.length + 1).padStart(3, "0")}`, name: `${selected.name} cópia`, fantasyName: `${selected.fantasyName} cópia` };
-    setClients((current) => [copy, ...current]);
-    setSelected(copy);
-    setEditingKey(getRecordKey(copy));
-    setDraft({ ...copy } as unknown as EditableRecord);
-    setEditOpen(true);
-  }
-
-  function removeSelected() {
-    if (!selected) return;
-    if (!window.confirm("Excluir este registro?")) return;
-    setClients((current) => current.filter((item) => getRecordKey(item) !== getRecordKey(selected)));
-    setSelected(null);
-    setModalOpen(false);
-    setEditOpen(false);
-  }
-
+    localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
+  }, [storageReady, clients]);
 
   const filtered = useMemo(() => {
     return clients.filter((item) => {
@@ -528,45 +746,75 @@ export default function ClientesPage() {
   }, [filtered, leads]);
 
   function createClient() {
-    const next: Client = {
-      id: `CLI-${String(clients.length + 1).padStart(3, "0")}`,
+    const next = makeClientFromPartial({
+      id: `CLI-${String(Date.now()).slice(-5)}`,
       name: "Novo cliente",
       fantasyName: "Novo cliente",
       type: "Pessoa física",
-      document: "Pendente",
       status: "Lead",
       category: "Novo contato",
       origin: "WhatsApp",
-      phone: "(11) 99999-9999",
-      whatsapp: "(11) 99999-9999",
-      email: "novo@email.com",
+      phone: "",
+      whatsapp: "",
+      email: "",
       neighborhood: "São Paulo",
       city: "São Paulo/SP",
-      address: "São Paulo/SP",
+      address: "",
       responsible: "Guilherme Santana",
       serviceInterest: "A definir",
-      recurrence: "Sob demanda",
-      totalOs: 0,
-      totalQuotes: 0,
-      totalVisits: 0,
-      totalRevenue: 0,
-      received: 0,
-      openAmount: 0,
-      overdue: 0,
-      lastService: "Sem atendimento",
-      nextService: "A definir",
-      ticketAverage: 0,
-      rating: "Comum",
-      notes: "Editar cadastro do cliente.",
-      timeline: ["Cliente criado manualmente"],
-      documents: []
-    };
-    setClients((current) => [next, ...current]);
-    setSelected(next);
-    setEditingKey(getRecordKey(next));
-    setDraft({ ...next } as unknown as EditableRecord);
-    setModalOpen(false);
+      notes: "Cliente criado manualmente.",
+      timeline: ["Cliente criado manualmente"]
+    });
+
+    setDraft(next);
     setEditOpen(true);
+    setModalOpen(false);
+  }
+
+  function openClientEditor(client: Client) {
+    setDraft({
+      ...client,
+      timeline: [...client.timeline],
+      documents: [...client.documents]
+    });
+    setEditOpen(true);
+  }
+
+  function saveClient() {
+    if (!draft) return;
+
+    const next = makeClientFromPartial({
+      ...draft,
+      name: draft.name.trim() || "Cliente não informado",
+      fantasyName: draft.fantasyName.trim() || draft.name.trim() || "Cliente",
+      phone: draft.phone.trim(),
+      whatsapp: draft.whatsapp.trim() || draft.phone.trim(),
+      email: draft.email.trim(),
+      address: draft.address.trim(),
+      notes: draft.notes.trim(),
+      timeline: draft.timeline.length ? draft.timeline : ["Cadastro atualizado manualmente"]
+    });
+
+    setClients((current) => {
+      const exists = current.some((item) => item.id === next.id);
+
+      return exists
+        ? current.map((item) => item.id === next.id ? next : item)
+        : [next, ...current];
+    });
+
+    setSelected(next);
+    setModalOpen(true);
+    setEditOpen(false);
+    setDraft(null);
+  }
+
+  function removeClient(client: Client) {
+    if (!window.confirm("Excluir este cliente do CRM?")) return;
+
+    setClients((current) => current.filter((item) => item.id !== client.id));
+    setSelected(null);
+    setModalOpen(false);
   }
 
   function moveLead(id: string, status: Lead["status"]) {
@@ -602,6 +850,7 @@ export default function ClientesPage() {
 
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
               <button onClick={createClient} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Novo cliente</button>
+              <button onClick={syncClientsFromStorage} className="btn-ghost inline-flex items-center justify-center gap-2"><Users size={17} /> Atualizar CRM</button>
               <button onClick={() => setActiveTab("Leads")} className="btn-ghost inline-flex items-center justify-center gap-2"><UserPlus size={17} /> Novo lead</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
               <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
@@ -928,9 +1177,8 @@ export default function ClientesPage() {
 
                 <div className="flex flex-wrap gap-2">
                   <a href={`https://wa.me/55${selected.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
-                  <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
-                  <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
-                  <button onClick={removeSelected} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
+                  <button onClick={() => openClientEditor(selected)} className="btn-primary inline-flex items-center gap-2"><FileText size={17} /> Editar cadastro</button>
+                  <button onClick={() => removeClient(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
                   <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
                 </div>
               </div>
@@ -1000,14 +1248,17 @@ export default function ClientesPage() {
         )}
 
         {editOpen && draft && (
-          <EditableRecordModal
-            title={editingKey ? "Editar registro" : "Novo registro"}
+          <ClientEditorModal
             draft={draft}
             setDraft={setDraft}
-            onSave={saveEditor}
-            onCancel={() => setEditOpen(false)}
+            onSave={saveClient}
+            onCancel={() => {
+              setEditOpen(false);
+              setDraft(null);
+            }}
           />
         )}
+
       </div>
     </AppShell>
   );
@@ -1018,112 +1269,156 @@ function ClockIcon() {
 }
 
 
-type EditableRecord = Record<string, unknown>;
 
-function EditableRecordModal({
-  title,
+function ClientEditorModal({
   draft,
   setDraft,
   onSave,
   onCancel
 }: {
-  title: string;
-  draft: EditableRecord;
-  setDraft: (value: EditableRecord) => void;
+  draft: Client;
+  setDraft: Dispatch<SetStateAction<Client | null>>;
   onSave: () => void;
   onCancel: () => void;
 }) {
-  function fieldValue(value: unknown) {
-    if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-      return JSON.stringify(value, null, 2);
-    }
-
-    return String(value ?? "");
+  function setField<K extends keyof Client>(field: K, value: Client[K]) {
+    setDraft((current) => current ? { ...current, [field]: value } : current);
   }
 
-  function parseValue(oldValue: unknown, raw: string) {
-    if (typeof oldValue === "number") return Number(raw.replace(",", ".")) || 0;
-    if (typeof oldValue === "boolean") return raw === "true";
-
-    if (Array.isArray(oldValue) || (typeof oldValue === "object" && oldValue !== null)) {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw.split(",").map((item) => item.trim()).filter(Boolean);
-      }
-    }
-
-    return raw;
+  function setTimeline(value: string) {
+    setDraft((current) => current ? { ...current, timeline: value.split("\n").map((item) => item.trim()).filter(Boolean) } : current);
   }
 
-  function updateField(key: string, raw: string) {
-    setDraft({
-      ...draft,
-      [key]: parseValue(draft[key], raw)
-    });
+  function setDocuments(value: string) {
+    setDraft((current) => current ? { ...current, documents: value.split("\n").map((item) => item.trim()).filter(Boolean) } : current);
   }
 
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="volt-scroll max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
-        <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+        <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 md:flex-row md:items-start">
           <div>
-            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Edição funcional</p>
-            <h2 className="mt-2 text-3xl font-black">{title}</h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-500">
-              Edite os dados, salve e a alteração ficará gravada no navegador.
-            </p>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Cadastro de cliente</p>
+            <h2 className="mt-1 text-3xl font-black">Editar CRM</h2>
+            <p className="mt-2 text-sm text-zinc-500">{draft.id}</p>
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <button onClick={onSave} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Salvar cliente</button>
             <button onClick={onCancel} className="btn-ghost">Cancelar</button>
-            <button onClick={onSave} className="btn-primary">Salvar alterações</button>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          {Object.entries(draft).map(([key, value]) => {
-            const isLong = Array.isArray(value) || (typeof value === "object" && value !== null) || key.toLowerCase().includes("notes") || key.toLowerCase().includes("observ");
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Nome/Razão social</span>
+            <input value={draft.name} onChange={(event) => setField("name", event.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" />
+          </label>
 
-            return (
-              <div key={key} className={`rounded-2xl border border-white/10 bg-white/[.035] p-4 ${isLong ? "md:col-span-2" : ""}`}>
-                <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{key}</label>
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Nome fantasia/apelido</span>
+            <input value={draft.fantasyName} onChange={(event) => setField("fantasyName", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
 
-                {typeof value === "boolean" ? (
-                  <select
-                    value={value ? "true" : "false"}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  >
-                    <option value="true">Sim</option>
-                    <option value="false">Não</option>
-                  </select>
-                ) : isLong ? (
-                  <textarea
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    rows={5}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                ) : (
-                  <input
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    type={typeof value === "number" ? "number" : "text"}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Documento</span>
+            <input value={draft.document} onChange={(event) => setField("document", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="CPF/CNPJ" />
+          </label>
 
-        <div className="mt-6 flex justify-end gap-2 border-t border-white/10 pt-5">
-          <button onClick={onCancel} className="btn-ghost">Cancelar</button>
-          <button onClick={onSave} className="btn-primary">Salvar alterações</button>
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Tipo</span>
+            <select value={draft.type} onChange={(event) => setField("type", event.target.value as ClientType)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Pessoa física", "Pessoa jurídica", "Condomínio", "Empresa", "Loja", "Escritório", "Residencial"].map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Status</span>
+            <select value={draft.status} onChange={(event) => setField("status", event.target.value as ClientStatus)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Lead", "Ativo", "Inativo", "Inadimplente", "Recorrente", "Em negociação", "Bloqueado"].map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Telefone</span>
+            <input value={draft.phone} onChange={(event) => setField("phone", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">WhatsApp</span>
+            <input value={draft.whatsapp} onChange={(event) => setField("whatsapp", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">E-mail</span>
+            <input value={draft.email} onChange={(event) => setField("email", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Endereço</span>
+            <input value={draft.address} onChange={(event) => setField("address", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Bairro</span>
+            <input value={draft.neighborhood} onChange={(event) => setField("neighborhood", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Cidade</span>
+            <input value={draft.city} onChange={(event) => setField("city", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Origem</span>
+            <input value={draft.origin} onChange={(event) => setField("origin", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Responsável</span>
+            <input value={draft.responsible} onChange={(event) => setField("responsible", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Serviço de interesse</span>
+            <input value={draft.serviceInterest} onChange={(event) => setField("serviceInterest", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Recorrência</span>
+            <input value={draft.recurrence} onChange={(event) => setField("recurrence", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <div className="grid gap-3 md:col-span-2 md:grid-cols-4">
+            {[
+              ["totalRevenue", "Faturado"],
+              ["received", "Recebido"],
+              ["openAmount", "Aberto"],
+              ["overdue", "Vencido"]
+            ].map(([field, label]) => (
+              <label key={field} className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{label}</span>
+                <input type="number" value={Number(draft[field as keyof Client] || 0)} onChange={(event) => setField(field as keyof Client, Number(event.target.value) as never)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+              </label>
+            ))}
+          </div>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Observações</span>
+            <textarea value={draft.notes} onChange={(event) => setField("notes", event.target.value)} rows={4} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Linha do tempo, um item por linha</span>
+            <textarea value={draft.timeline.join("\n")} onChange={(event) => setTimeline(event.target.value)} rows={5} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Documentos, um item por linha</span>
+            <textarea value={draft.documents.join("\n")} onChange={(event) => setDocuments(event.target.value)} rows={5} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" />
+          </label>
         </div>
       </div>
     </div>
   );
 }
-
