@@ -647,7 +647,7 @@ export default function CotacoesPage() {
 
         signingUrl,
         documentPurpose: "approval"
-      });
+      } as any);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao gerar PDF para assinatura.");
     }
@@ -757,7 +757,7 @@ export default function CotacoesPage() {
       logoSrc: "/img/logo.png",
       signingUrl: pdfQuote.signatureUrl,
       documentPurpose: "final"
-    });
+    } as any);
   }
 
   async function sendToRemoteSignature(quote: Quote) {
