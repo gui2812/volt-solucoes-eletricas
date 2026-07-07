@@ -458,6 +458,7 @@ function CashFlowWaterfall() {
 
 const FINANCE_STORAGE_KEY = "volt_financeiro_premium_v1";
 const FINANCE_QUEUE_KEY = "volt_financeiro_lancamentos_v1";
+const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
 
 function mergeTransactions(base: Transaction[], incoming: Transaction[]) {
   const map = new Map<string, Transaction>();
@@ -487,6 +488,54 @@ function readFinanceQueue() {
   const parsed = saved ? JSON.parse(saved) : null;
 
   return Array.isArray(parsed) ? parsed as Transaction[] : [];
+}
+
+
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function syncLinkedOrderPaymentFromFinance(transaction: Transaction) {
+  if (!transaction.serviceOrder || transaction.serviceOrder === "Sem OS") return false;
+
+  const saved = localStorage.getItem(ORDERS_STORAGE_KEY);
+  const parsed = saved ? JSON.parse(saved) : [];
+
+  if (!Array.isArray(parsed)) return false;
+
+  const amount = transaction.actual || transaction.budgeted;
+  const note = `Pagamento/recebimento registrado no financeiro: ${transaction.id}.`;
+  let updated = false;
+
+  const nextOrders = parsed.map((order: { id?: string; paid?: number; value?: number; notes?: string }) => {
+    if (order.id !== transaction.serviceOrder) return order;
+
+    updated = true;
+
+    const currentPaid = Number(order.paid || 0);
+    const orderValue = Number(order.value || amount);
+    const nextPaid = Math.min(Math.max(currentPaid, amount), orderValue || amount);
+
+    return {
+      ...order,
+      paid: nextPaid,
+      notes: order.notes?.includes(note) ? order.notes : `${order.notes || ""}\n${note}`.trim()
+    };
+  });
+
+  if (updated) {
+    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(nextOrders));
+    window.dispatchEvent(new CustomEvent("volt:ordem-pagamento-atualizado", {
+      detail: {
+        os: transaction.serviceOrder,
+        transactionId: transaction.id,
+        amount
+      }
+    }));
+  }
+
+  return updated;
 }
 
 
@@ -604,6 +653,52 @@ export default function FinanceiroPage() {
     setTransactions((current) => [next, ...current]);
     setSelected(next);
     setModalOpen(true);
+  }
+
+  function markTransactionAsDone(transaction: Transaction) {
+    const isIncome = transaction.type === "Receita" || transaction.type === "Conta a receber";
+    const isExpense = transaction.type === "Despesa" || transaction.type === "Conta a pagar";
+
+    const next: Transaction = {
+      ...transaction,
+      type: isIncome ? "Receita" : isExpense ? "Despesa" : transaction.type,
+      status: isIncome ? "Recebido" : isExpense ? "Pago" : transaction.status,
+      actual: transaction.actual > 0 ? transaction.actual : transaction.budgeted,
+      paymentDate: transaction.paymentDate || todayIso(),
+      notes: transaction.notes.includes("Baixado automaticamente")
+        ? transaction.notes
+        : `${transaction.notes}\nBaixado automaticamente em ${new Date().toLocaleDateString("pt-BR")}.`.trim()
+    };
+
+    setTransactions((current) => current.map((item) => item.id === transaction.id ? next : item));
+    setSelected(next);
+
+    try {
+      if (isIncome) {
+        syncLinkedOrderPaymentFromFinance(next);
+      }
+    } catch {
+      // O financeiro continua funcionando mesmo se a sincronização da OS falhar.
+    }
+
+    alert(isIncome ? "Recebimento marcado como recebido." : "Pagamento marcado como pago.");
+  }
+
+  function cancelTransaction(transaction: Transaction) {
+    const confirmed = window.confirm("Deseja cancelar este lançamento financeiro?");
+
+    if (!confirmed) return;
+
+    const next: Transaction = {
+      ...transaction,
+      status: "Cancelado",
+      notes: transaction.notes.includes("Lançamento cancelado")
+        ? transaction.notes
+        : `${transaction.notes}\nLançamento cancelado em ${new Date().toLocaleDateString("pt-BR")}.`.trim()
+    };
+
+    setTransactions((current) => current.map((item) => item.id === transaction.id ? next : item));
+    setSelected(next);
   }
 
   function exportCsv() {
@@ -954,7 +1049,18 @@ export default function FinanceiroPage() {
                   <p className="mt-2 text-sm text-zinc-500">{selected.id} • {selected.clientSupplier}</p>
                 </div>
 
-                <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
+                <div className="flex flex-wrap gap-2">
+                  {(selected.type === "Receita" || selected.type === "Conta a receber") && selected.status !== "Recebido" && (
+                    <button onClick={() => markTransactionAsDone(selected)} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Marcar recebido</button>
+                  )}
+                  {(selected.type === "Despesa" || selected.type === "Conta a pagar") && selected.status !== "Pago" && (
+                    <button onClick={() => markTransactionAsDone(selected)} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Marcar pago</button>
+                  )}
+                  {selected.status !== "Cancelado" && (
+                    <button onClick={() => cancelTransaction(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Cancelar lançamento</button>
+                  )}
+                  <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
+                </div>
               </div>
 
               <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -970,6 +1076,7 @@ export default function FinanceiroPage() {
                   ["Pagamento/recebimento", selected.paymentDate || "Não realizado"],
                   ["Forma de pagamento", selected.paymentMethod],
                   ["OS vinculada", selected.serviceOrder],
+                  ["Impacto na OS", selected.serviceOrder !== "Sem OS" && selected.status === "Recebido" ? "Pagamento atualizado na OS" : "-"],
                   ["Cotação vinculada", selected.quote],
                   ["Recorrência", selected.recurrence],
                   ["Responsável", selected.responsible]
