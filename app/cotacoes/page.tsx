@@ -1461,6 +1461,7 @@ export default function CotacoesPage() {
                 <div className="flex flex-wrap gap-2">
                   <a href={quoteWhatsAppLink(selected)} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
                   <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF final</button>
+                  <button onClick={() => openApprovalPdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF para assinatura</button>
                   <button onClick={() => sendToRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><Send size={17} /> Enviar assinatura</button>
                   {selected.signatureUrl && (
                     <button
