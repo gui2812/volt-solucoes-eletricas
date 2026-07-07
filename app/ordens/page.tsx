@@ -16,6 +16,7 @@ import {
   Plus,
   Search,
   ShieldCheck,
+  Trash2,
   Users,
   Wallet,
   Wrench,
@@ -203,6 +204,37 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
+const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
+const CONVERTED_ORDERS_QUEUE_KEY = "volt_ordens_convertidas_v1";
+
+function mergeOrders(base: ServiceOrder[], converted: ServiceOrder[]) {
+  const map = new Map<string, ServiceOrder>();
+
+  [...converted, ...base].forEach((order) => {
+    const key = order.quote && order.quote !== "Sem orçamento" ? order.quote : order.id;
+
+    if (!map.has(key)) {
+      map.set(key, order);
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function readOrdersFromStorage() {
+  const saved = localStorage.getItem(ORDERS_STORAGE_KEY);
+  const parsed = saved ? JSON.parse(saved) : null;
+
+  return Array.isArray(parsed) ? parsed as ServiceOrder[] : ordersSeed;
+}
+
+function readConvertedOrdersQueue() {
+  const saved = localStorage.getItem(CONVERTED_ORDERS_QUEUE_KEY);
+  const parsed = saved ? JSON.parse(saved) : null;
+
+  return Array.isArray(parsed) ? parsed as ServiceOrder[] : [];
+}
+
 export default function OrdensPage() {
   const [orders, setOrders] = useState<ServiceOrder[]>(ordersSeed);
   const [search, setSearch] = useState("");
@@ -215,25 +247,41 @@ export default function OrdensPage() {
   const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("volt_ordens_premium_v1");
-      if (saved) {
-        const parsed = JSON.parse(saved) as ServiceOrder[];
-        if (Array.isArray(parsed)) {
-          setOrders(parsed);
-          setSelected(parsed[0] ?? null);
+    function syncOrdersFromStorage() {
+      try {
+        const savedOrders = readOrdersFromStorage();
+        const convertedOrders = readConvertedOrdersQueue();
+        const merged = mergeOrders(savedOrders, convertedOrders);
+
+        setOrders(merged);
+        setSelected(merged[0] ?? null);
+
+        localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(merged));
+
+        if (convertedOrders.length) {
+          localStorage.removeItem(CONVERTED_ORDERS_QUEUE_KEY);
         }
+      } catch {
+        setOrders(ordersSeed);
+      } finally {
+        setStorageReady(true);
       }
-    } catch {
-      setOrders(ordersSeed);
-    } finally {
-      setStorageReady(true);
     }
+
+    syncOrdersFromStorage();
+
+    window.addEventListener("storage", syncOrdersFromStorage);
+    window.addEventListener("volt:ordem-criada", syncOrdersFromStorage);
+
+    return () => {
+      window.removeEventListener("storage", syncOrdersFromStorage);
+      window.removeEventListener("volt:ordem-criada", syncOrdersFromStorage);
+    };
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
-    localStorage.setItem("volt_ordens_premium_v1", JSON.stringify(orders));
+    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
   }, [storageReady, orders]);
 
   function getRecordKey(item: ServiceOrder) {
@@ -273,6 +321,23 @@ export default function OrdensPage() {
     setEditOpen(false);
   }
 
+
+  function forceSyncConvertedOrders() {
+    try {
+      const savedOrders = readOrdersFromStorage();
+      const convertedOrders = readConvertedOrdersQueue();
+      const merged = mergeOrders(savedOrders, convertedOrders);
+
+      setOrders(merged);
+      setSelected(merged[0] ?? null);
+      localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(merged));
+      localStorage.removeItem(CONVERTED_ORDERS_QUEUE_KEY);
+
+      alert("Ordens atualizadas.");
+    } catch {
+      alert("Não foi possível atualizar as ordens agora.");
+    }
+  }
 
   const filtered = useMemo(() => {
     return orders.filter((item) => {
@@ -609,6 +674,95 @@ export default function OrdensPage() {
 
 type EditableRecord = Record<string, unknown>;
 
+type ChecklistItem = { item: string; done: boolean };
+
+const orderFieldLabels: Record<string, string> = {
+  id: "OS",
+  title: "Serviço",
+  client: "Cliente",
+  phone: "Telefone / WhatsApp",
+  address: "Endereço",
+  type: "Tipo de serviço",
+  status: "Status",
+  priority: "Prioridade",
+  date: "Data agendada",
+  technician: "Técnico",
+  value: "Valor total",
+  paid: "Valor pago",
+  materialsCost: "Custo dos materiais",
+  quote: "Cotação vinculada",
+  checklist: "Checklist técnico",
+  materials: "Materiais usados",
+  notes: "Observações"
+};
+
+const statusOptions: OrderStatus[] = ["Orçamento", "Agendada", "Em andamento", "Finalizada", "Cancelada"];
+const priorityOptions: Priority[] = ["Baixa", "Média", "Alta", "Urgente"];
+
+function normalizeChecklist(value: unknown): ChecklistItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item) => {
+    if (typeof item === "string") return { item, done: false };
+    if (item && typeof item === "object" && "item" in item) {
+      const current = item as { item?: unknown; done?: unknown };
+      return {
+        item: String(current.item ?? ""),
+        done: Boolean(current.done)
+      };
+    }
+
+    return { item: String(item ?? ""), done: false };
+  });
+}
+
+function normalizeMaterials(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item ?? "")).filter(Boolean);
+}
+
+function updateChecklistItem(
+  draft: EditableRecord,
+  setDraft: (value: EditableRecord) => void,
+  index: number,
+  patch: Partial<ChecklistItem>
+) {
+  const checklist = normalizeChecklist(draft.checklist);
+  const next = checklist.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item));
+  setDraft({ ...draft, checklist: next });
+}
+
+function addChecklistItem(draft: EditableRecord, setDraft: (value: EditableRecord) => void) {
+  const checklist = normalizeChecklist(draft.checklist);
+  setDraft({ ...draft, checklist: [...checklist, { item: "Novo item", done: false }] });
+}
+
+function removeChecklistItem(draft: EditableRecord, setDraft: (value: EditableRecord) => void, index: number) {
+  const checklist = normalizeChecklist(draft.checklist);
+  setDraft({ ...draft, checklist: checklist.filter((_, itemIndex) => itemIndex !== index) });
+}
+
+function updateMaterial(
+  draft: EditableRecord,
+  setDraft: (value: EditableRecord) => void,
+  index: number,
+  value: string
+) {
+  const materials = normalizeMaterials(draft.materials);
+  const next = materials.map((item, itemIndex) => (itemIndex === index ? value : item));
+  setDraft({ ...draft, materials: next });
+}
+
+function addMaterial(draft: EditableRecord, setDraft: (value: EditableRecord) => void) {
+  const materials = normalizeMaterials(draft.materials);
+  setDraft({ ...draft, materials: [...materials, "Novo material"] });
+}
+
+function removeMaterial(draft: EditableRecord, setDraft: (value: EditableRecord) => void, index: number) {
+  const materials = normalizeMaterials(draft.materials);
+  setDraft({ ...draft, materials: materials.filter((_, itemIndex) => itemIndex !== index) });
+}
+
 function EditableRecordModal({
   title,
   draft,
@@ -623,25 +777,14 @@ function EditableRecordModal({
   onCancel: () => void;
 }) {
   function fieldValue(value: unknown) {
-    if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-      return JSON.stringify(value, null, 2);
-    }
-
+    if (Array.isArray(value)) return value.join(", ");
+    if (typeof value === "object" && value !== null) return JSON.stringify(value, null, 2);
     return String(value ?? "");
   }
 
   function parseValue(oldValue: unknown, raw: string) {
     if (typeof oldValue === "number") return Number(raw.replace(",", ".")) || 0;
     if (typeof oldValue === "boolean") return raw === "true";
-
-    if (Array.isArray(oldValue) || (typeof oldValue === "object" && oldValue !== null)) {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw.split(",").map((item) => item.trim()).filter(Boolean);
-      }
-    }
-
     return raw;
   }
 
@@ -652,6 +795,145 @@ function EditableRecordModal({
     });
   }
 
+  function renderField(key: string, value: unknown) {
+    const label = orderFieldLabels[key] ?? key;
+
+    if (key === "checklist") {
+      const checklist = normalizeChecklist(value);
+
+      return (
+        <div key={key} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+          <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{label}</label>
+              <p className="mt-1 text-xs text-zinc-500">Marque o que foi concluído, edite o texto ou adicione novos itens.</p>
+            </div>
+            <button onClick={() => addChecklistItem(draft, setDraft)} className="btn-ghost inline-flex items-center justify-center gap-2">
+              <Plus size={16} /> Adicionar item
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {checklist.map((item, index) => (
+              <div key={`${item.item}-${index}`} className="grid gap-3 rounded-2xl border border-white/10 bg-black/30 p-3 md:grid-cols-[auto_1fr_auto] md:items-center">
+                <button
+                  type="button"
+                  onClick={() => updateChecklistItem(draft, setDraft, index, { done: !item.done })}
+                  className={`grid h-10 w-10 place-items-center rounded-full transition ${item.done ? "bg-volt-ok text-black" : "bg-white/10 text-zinc-500 hover:bg-white/15"}`}
+                  title={item.done ? "Concluído" : "Pendente"}
+                >
+                  {item.done ? <CheckCircle2 size={20} /> : <span className="h-3 w-3 rounded-full bg-zinc-500" />}
+                </button>
+
+                <input
+                  value={item.item}
+                  onChange={(event) => updateChecklistItem(draft, setDraft, index, { item: event.target.value })}
+                  className="w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  placeholder="Descrição do item do checklist"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => removeChecklistItem(draft, setDraft, index)}
+                  className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200"
+                >
+                  Remover
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (key === "materials") {
+      const materials = normalizeMaterials(value);
+
+      return (
+        <div key={key} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+          <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{label}</label>
+              <p className="mt-1 text-xs text-zinc-500">Preencha um material por linha visual. Nada de JSON bloqueado.</p>
+            </div>
+            <button onClick={() => addMaterial(draft, setDraft)} className="btn-ghost inline-flex items-center justify-center gap-2">
+              <Plus size={16} /> Adicionar material
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {materials.map((material, index) => (
+              <div key={`${material}-${index}`} className="flex gap-2 rounded-2xl border border-white/10 bg-black/30 p-3">
+                <input
+                  value={material}
+                  onChange={(event) => updateMaterial(draft, setDraft, index, event.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                  placeholder="Nome do material"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeMaterial(draft, setDraft, index)}
+                  className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm font-black text-red-200"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const isNotes = key.toLowerCase().includes("notes") || key.toLowerCase().includes("observ");
+
+    return (
+      <div key={key} className={`rounded-2xl border border-white/10 bg-white/[.035] p-4 ${isNotes ? "md:col-span-2" : ""}`}>
+        <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{label}</label>
+
+        {key === "status" ? (
+          <select
+            value={String(value ?? "")}
+            onChange={(event) => updateField(key, event.target.value)}
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+          >
+            {statusOptions.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        ) : key === "priority" ? (
+          <select
+            value={String(value ?? "")}
+            onChange={(event) => updateField(key, event.target.value)}
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+          >
+            {priorityOptions.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        ) : typeof value === "boolean" ? (
+          <select
+            value={value ? "true" : "false"}
+            onChange={(event) => updateField(key, event.target.value)}
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+          >
+            <option value="true">Sim</option>
+            <option value="false">Não</option>
+          </select>
+        ) : isNotes ? (
+          <textarea
+            value={fieldValue(value)}
+            onChange={(event) => updateField(key, event.target.value)}
+            rows={4}
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+          />
+        ) : (
+          <input
+            value={fieldValue(value)}
+            onChange={(event) => updateField(key, event.target.value)}
+            type={typeof value === "number" ? "number" : key === "date" ? "date" : "text"}
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
       <div className="volt-scroll max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
@@ -660,7 +942,7 @@ function EditableRecordModal({
             <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Edição funcional</p>
             <h2 className="mt-2 text-3xl font-black">{title}</h2>
             <p className="mt-2 text-sm leading-6 text-zinc-500">
-              Edite os dados, salve e a alteração ficará gravada no navegador.
+              Edite os dados, checklist e materiais de forma visual. Depois clique em salvar.
             </p>
           </div>
 
@@ -671,40 +953,7 @@ function EditableRecordModal({
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
-          {Object.entries(draft).map(([key, value]) => {
-            const isLong = Array.isArray(value) || (typeof value === "object" && value !== null) || key.toLowerCase().includes("notes") || key.toLowerCase().includes("observ");
-
-            return (
-              <div key={key} className={`rounded-2xl border border-white/10 bg-white/[.035] p-4 ${isLong ? "md:col-span-2" : ""}`}>
-                <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{key}</label>
-
-                {typeof value === "boolean" ? (
-                  <select
-                    value={value ? "true" : "false"}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  >
-                    <option value="true">Sim</option>
-                    <option value="false">Não</option>
-                  </select>
-                ) : isLong ? (
-                  <textarea
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    rows={5}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                ) : (
-                  <input
-                    value={fieldValue(value)}
-                    onChange={(event) => updateField(key, event.target.value)}
-                    type={typeof value === "number" ? "number" : "text"}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-                  />
-                )}
-              </div>
-            );
-          })}
+          {Object.entries(draft).map(([key, value]) => renderField(key, value))}
         </div>
 
         <div className="mt-6 flex justify-end gap-2 border-t border-white/10 pt-5">
@@ -715,4 +964,3 @@ function EditableRecordModal({
     </div>
   );
 }
-
