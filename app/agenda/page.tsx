@@ -1261,6 +1261,8 @@ export default function AgendaPage() {
             </div>
           </div>
 
+        )}
+
         {editOpen && draft && (
           <AppointmentEditorModal
             draft={draft}
@@ -1271,7 +1273,6 @@ export default function AgendaPage() {
               setDraft(null);
             }}
           />
-        )}
         )}
       </div>
     </AppShell>
