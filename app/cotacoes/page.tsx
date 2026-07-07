@@ -2,7 +2,7 @@
 
 import { AppShell } from "@/components/layout/app-shell";
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
-import { createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
+import { checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -46,6 +46,8 @@ type SignatureData = {
   signatureDataUrl?: string;
 };
 
+type RemoteSignatureStatus = "Pendente" | "Enviada" | "Assinada" | "Expirada" | "Cancelada";
+
 type QuoteItem = {
   kind: "Serviço" | "Material" | "Mão de obra" | "Deslocamento" | "Taxa";
   code: string;
@@ -82,6 +84,10 @@ type Quote = {
   notes: string;
   responsibleSignature?: SignatureData;
   clientSignature?: SignatureData;
+  signatureToken?: string;
+  signatureUrl?: string;
+  signatureStatus?: RemoteSignatureStatus;
+  signedAt?: string;
 };
 
 const quotesSeed: Quote[] = [
@@ -624,6 +630,9 @@ export default function CotacoesPage() {
         return {
           ...item,
           status: item.status === "Rascunho" ? "Enviada" : item.status,
+          signatureToken: result.token,
+          signatureUrl: result.signingUrl,
+          signatureStatus: "Enviada",
           history: [
             ...item.history,
             `Link de assinatura enviado em ${new Date().toLocaleDateString("pt-BR")}`
@@ -637,6 +646,9 @@ export default function CotacoesPage() {
         return {
           ...current,
           status: current.status === "Rascunho" ? "Enviada" : current.status,
+          signatureToken: result.token,
+          signatureUrl: result.signingUrl,
+          signatureStatus: "Enviada",
           history: [
             ...current.history,
             `Link de assinatura enviado em ${new Date().toLocaleDateString("pt-BR")}`
@@ -648,6 +660,78 @@ export default function CotacoesPage() {
       alert("Link de assinatura criado, copiado e aberto no WhatsApp do cliente.");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao gerar link de assinatura.");
+    }
+  }
+
+  async function checkRemoteSignature(quote: Quote) {
+    try {
+      const result = await checkRemoteSignatureStatus(quote.id);
+
+      if (!result.found) {
+        alert("Ainda não existe link de assinatura para este orçamento.");
+        return;
+      }
+
+      const remoteStatus: RemoteSignatureStatus =
+        result.status === "signed"
+          ? "Assinada"
+          : result.status === "expired"
+            ? "Expirada"
+            : result.status === "cancelled"
+              ? "Cancelada"
+              : "Enviada";
+
+      const clientSignature = result.clientSignature
+        ? {
+            signerName: result.clientSignature.signerName || quote.contact || quote.client || "Cliente",
+            mode: result.clientSignature.mode || "Assinatura livre",
+            signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || todayIso(),
+            signatureDataUrl: result.clientSignature.signatureDataUrl || ""
+          } as SignatureData
+        : quote.clientSignature;
+
+      const newStatus: QuoteStatus =
+        result.status === "signed" && !["Convertida em OS", "Recusada"].includes(quote.status)
+          ? "Aprovada"
+          : quote.status;
+
+      setQuotes((current) => current.map((item) => {
+        if (item.id !== quote.id) return item;
+
+        return {
+          ...item,
+          status: newStatus,
+          signatureStatus: remoteStatus,
+          signedAt: result.signedAt || item.signedAt,
+          clientSignature,
+          history: result.status === "signed"
+            ? [...item.history, `Assinatura confirmada em ${new Date().toLocaleDateString("pt-BR")}`]
+            : item.history
+        };
+      }));
+
+      setSelected((current) => {
+        if (!current || current.id !== quote.id) return current;
+
+        return {
+          ...current,
+          status: newStatus,
+          signatureStatus: remoteStatus,
+          signedAt: result.signedAt || current.signedAt,
+          clientSignature,
+          history: result.status === "signed"
+            ? [...current.history, `Assinatura confirmada em ${new Date().toLocaleDateString("pt-BR")}`]
+            : current.history
+        };
+      });
+
+      if (result.status === "signed") {
+        alert("Assinatura confirmada! O orçamento foi marcado como aprovado.");
+      } else {
+        alert(`Status da assinatura: ${remoteStatus}.`);
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao verificar assinatura.");
     }
   }
 
@@ -723,7 +807,8 @@ export default function CotacoesPage() {
       history: ["Orçamento criado"],
       notes: "",
       responsibleSignature: makeSignature("Guilherme Santana", "Rubrica predefinida"),
-      clientSignature: makeSignature("", "Pendente")
+      clientSignature: makeSignature("", "Pendente"),
+      signatureStatus: "Pendente"
     };
 
     setSelected(next);
@@ -1132,6 +1217,7 @@ export default function CotacoesPage() {
                   <a href={quoteWhatsAppLink(selected)} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
                   <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF</button>
                   <button onClick={() => sendToRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><Send size={17} /> Enviar assinatura</button>
+                  <button onClick={() => checkRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><CheckCircle2 size={17} /> Verificar assinatura</button>
                   <button onClick={() => convertQuoteToOs(selected.id)} className="btn-ghost">Converter em OS</button>
                   <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
                   <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
@@ -1156,6 +1242,8 @@ export default function CotacoesPage() {
                     ["Garantia", selected.warranty],
                     ["Prazo", selected.deadline],
                     ["OS vinculada", selected.os],
+                    ["Assinatura", selected.signatureStatus ?? "Pendente"],
+                    ["Assinado em", selected.signedAt ? new Date(selected.signedAt).toLocaleDateString("pt-BR") : "-"],
                     ["Valor final", currency(quoteTotal(selected))],
                     ["Custo estimado", currency(quoteCost(selected))],
                     ["Lucro estimado", currency(quoteTotal(selected) - quoteCost(selected))]
