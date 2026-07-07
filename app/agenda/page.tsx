@@ -62,7 +62,60 @@ type Appointment = {
   notes: string;
 };
 
-const today = "2026-06-25";
+function toIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function todayIso() {
+  return toIsoDate(new Date());
+}
+
+function formatMonthTitle(date: Date) {
+  return date.toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric"
+  }).replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function getCalendarMonth(monthOffset: number) {
+  const base = new Date();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + monthOffset);
+  base.setHours(12, 0, 0, 0);
+
+  return base;
+}
+
+function getCalendarGrid(monthOffset: number) {
+  const monthDate = getCalendarMonth(monthOffset);
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const start = new Date(firstDay);
+  start.setDate(firstDay.getDate() - firstDay.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+
+    return {
+      day: date.getDate(),
+      date: toIsoDate(date),
+      isCurrentMonth: date.getMonth() === month
+    };
+  });
+}
+
+function compareAppointmentDate(a: Appointment, b: Appointment) {
+  const left = `${a.date} ${a.start}`;
+  const right = `${b.date} ${b.start}`;
+
+  return left.localeCompare(right);
+}
 
 const appointmentsSeed: Appointment[] = [
   {
@@ -431,8 +484,11 @@ export default function AgendaPage() {
   const [technicianFilter, setTechnicianFilter] = useState("Todos");
   const [selected, setSelected] = useState<Appointment | null>(appointmentsSeed[0]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState<Appointment | null>(null);
   const [monthOffset, setMonthOffset] = useState(0);
   const [storageReady, setStorageReady] = useState(false);
+  const currentToday = todayIso();
 
   useEffect(() => {
     function syncAgendaFromStorage() {
@@ -501,7 +557,7 @@ export default function AgendaPage() {
 
   const stats = useMemo(() => {
     const total = filtered.length || 1;
-    const todayItems = filtered.filter((item) => item.date === today);
+    const todayItems = filtered.filter((item) => item.date === currentToday);
     const concluded = filtered.filter((item) => item.status === "Concluído").length;
     const late = filtered.filter((item) => item.status === "Atrasado").length;
     const urgent = filtered.filter((item) => item.priority === "Urgente").length;
@@ -525,6 +581,75 @@ export default function AgendaPage() {
     };
   }, [filtered]);
 
+  function makeBlankAppointment(): Appointment {
+    const id = `AG-${String(Date.now()).slice(-5)}`;
+
+    return {
+      id,
+      title: "Novo compromisso técnico",
+      client: "",
+      phone: "",
+      address: "",
+      region: "A definir",
+      type: "Visita técnica",
+      status: "Agendado",
+      priority: "Média",
+      date: currentToday,
+      start: "09:00",
+      end: "10:00",
+      technician: "Guilherme Santana",
+      os: "Sem OS",
+      quote: "Sem cotação",
+      value: 0,
+      costCenter: "Operação técnica",
+      recurrence: "Não repetir",
+      materials: ["EPI", "Ferramentas básicas"],
+      checklist: [
+        { item: "Confirmar com cliente", done: false },
+        { item: "Verificar endereço", done: false },
+        { item: "Separar ferramentas", done: false },
+        { item: "Registrar fotos", done: false }
+      ],
+      notes: ""
+    };
+  }
+
+  function openAppointmentEditor(item: Appointment) {
+    setDraft({
+      ...item,
+      materials: [...item.materials],
+      checklist: item.checklist.map((check) => ({ ...check }))
+    });
+    setEditOpen(true);
+  }
+
+  function saveAppointment() {
+    if (!draft) return;
+
+    const next: Appointment = {
+      ...draft,
+      title: draft.title.trim() || "Novo compromisso técnico",
+      client: draft.client.trim() || "Cliente não informado",
+      phone: draft.phone.trim() || "",
+      address: draft.address.trim() || "Endereço não informado",
+      materials: draft.materials.length ? draft.materials : ["Materiais a definir"],
+      checklist: draft.checklist.length ? draft.checklist : [{ item: "Confirmar atendimento", done: false }]
+    };
+
+    setAppointments((current) => {
+      const exists = current.some((item) => item.id === next.id);
+
+      return exists
+        ? current.map((item) => item.id === next.id ? next : item)
+        : [next, ...current];
+    });
+
+    setSelected(next);
+    setModalOpen(true);
+    setEditOpen(false);
+    setDraft(null);
+  }
+
   function moveStatus(id: string, status: Status) {
     const appointment = appointments.find((item) => item.id === id);
 
@@ -544,38 +669,12 @@ export default function AgendaPage() {
   }
 
   function createMockAppointment() {
-    const next: Appointment = {
-      id: `AG-${String(appointments.length + 1).padStart(3, "0")}`,
-      title: "Novo compromisso técnico",
-      client: "Cliente novo",
-      phone: "(11) 99999-9999",
-      address: "São Paulo/SP",
-      region: "A definir",
-      type: "Visita técnica",
-      status: "Agendado",
-      priority: "Média",
-      date: "2026-06-28",
-      start: "09:00",
-      end: "10:00",
-      technician: "Guilherme Santana",
-      os: "Sem OS",
-      quote: "Sem cotação",
-      value: 0,
-      costCenter: "Operação técnica",
-      recurrence: "Não repetir",
-      materials: ["EPI", "Ferramentas básicas"],
-      checklist: [
-        { item: "Confirmar com cliente", done: false },
-        { item: "Verificar endereço", done: false },
-        { item: "Separar ferramentas", done: false },
-        { item: "Registrar fotos", done: false }
-      ],
-      notes: "Compromisso criado rapidamente. Editar detalhes antes do atendimento."
-    };
+    const next = makeBlankAppointment();
 
-    setAppointments((current) => [next, ...current]);
     setSelected(next);
-    setModalOpen(true);
+    setDraft(next);
+    setModalOpen(false);
+    setEditOpen(true);
   }
 
   function exportCsv() {
@@ -608,12 +707,21 @@ export default function AgendaPage() {
 
   const tabs = ["Visão Geral", "Calendário", "Lista", "Kanban", "Técnicos", "Recorrências", "Alertas", "Relatórios"];
 
-  const calendarDays = Array.from({ length: 35 }, (_, index) => {
-    const day = index + 1;
-    const date = `2026-06-${String(day <= 30 ? day : day - 30).padStart(2, "0")}`;
-    const dayItems = filtered.filter((item) => item.date === date);
-    return { day, date, items: dayItems };
-  });
+  const calendarMonth = getCalendarMonth(monthOffset);
+  const calendarTitle = formatMonthTitle(calendarMonth);
+  const calendarDays = getCalendarGrid(monthOffset).map((day) => ({
+    ...day,
+    items: filtered.filter((item) => item.date === day.date)
+  }));
+
+  const upcomingAppointments = [...filtered]
+    .filter((item) => item.date >= currentToday || !["Concluído", "Cancelado"].includes(item.status))
+    .sort((a, b) => {
+      if (a.priority === "Urgente" && b.priority !== "Urgente") return -1;
+      if (b.priority === "Urgente" && a.priority !== "Urgente") return 1;
+
+      return compareAppointmentDate(a, b);
+    });
 
   return (
     <AppShell>
@@ -728,9 +836,8 @@ export default function AgendaPage() {
               </div>
 
               <div className="space-y-3">
-                {filtered
-                  .sort((a, b) => (a.priority === "Urgente" ? -1 : b.priority === "Urgente" ? 1 : a.date.localeCompare(b.date)))
-                  .slice(0, 6)
+                {upcomingAppointments
+                  .slice(0, 8)
                   .map((item) => (
                     <button
                       key={item.id}
@@ -808,7 +915,7 @@ export default function AgendaPage() {
             <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
               <div>
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Calendário visual</p>
-                <h2 className="mt-1 text-2xl font-black">Junho 2026</h2>
+                <h2 className="mt-1 text-2xl font-black">{calendarTitle}</h2>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setMonthOffset(monthOffset - 1)} className="btn-ghost"><ChevronLeft size={17} /></button>
@@ -826,11 +933,11 @@ export default function AgendaPage() {
                 <div
                   key={`${day.date}-${day.day}`}
                   className={`min-h-36 rounded-3xl border p-3 ${
-                    day.date === today ? "border-volt-yellow/40 bg-volt-yellow/10" : "border-white/10 bg-white/[.025]"
+                    day.date === currentToday ? "border-volt-yellow/40 bg-volt-yellow/10" : day.isCurrentMonth ? "border-white/10 bg-white/[.025]" : "border-white/5 bg-white/[.01] opacity-45"
                   }`}
                 >
                   <div className="mb-2 flex items-center justify-between">
-                    <p className="font-black">{day.day <= 30 ? day.day : day.day - 30}</p>
+                    <p className="font-black">{day.day}</p>
                     {day.items.length > 2 && <span className="rounded-full bg-red-500/15 px-2 py-1 text-[10px] font-black text-red-300">CHEIO</span>}
                   </div>
 
@@ -1082,6 +1189,7 @@ export default function AgendaPage() {
                   <a href={`https://wa.me/55${selected.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2">
                     <MessageCircle size={17} /> WhatsApp
                   </a>
+                  <button onClick={() => openAppointmentEditor(selected)} className="btn-primary inline-flex items-center gap-2"><FileText size={17} /> Editar compromisso</button>
                   <button onClick={() => moveStatus(selected.id, "Em atendimento")} className="btn-ghost inline-flex items-center gap-2"><Wrench size={17} /> Iniciar atendimento</button>
                   <button onClick={() => moveStatus(selected.id, "Concluído")} className="btn-ghost inline-flex items-center gap-2"><CheckCircle2 size={17} /> Concluir</button>
                   <button onClick={() => moveStatus(selected.id, "Cancelado")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Cancelar</button>
@@ -1152,8 +1260,205 @@ export default function AgendaPage() {
               </div>
             </div>
           </div>
+
+        {editOpen && draft && (
+          <AppointmentEditorModal
+            draft={draft}
+            setDraft={setDraft}
+            onSave={saveAppointment}
+            onCancel={() => {
+              setEditOpen(false);
+              setDraft(null);
+            }}
+          />
+        )}
         )}
       </div>
     </AppShell>
+  );
+}
+
+
+
+function AppointmentEditorModal({
+  draft,
+  setDraft,
+  onSave,
+  onCancel
+}: {
+  draft: Appointment;
+  setDraft: React.Dispatch<React.SetStateAction<Appointment | null>>;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function setField<K extends keyof Appointment>(field: K, value: Appointment[K]) {
+    setDraft((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  function setMaterials(value: string) {
+    const materials = value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    setDraft((current) => current ? { ...current, materials } : current);
+  }
+
+  function setChecklist(value: string) {
+    const previous = draft.checklist;
+    const checklist = value
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => ({
+        item,
+        done: previous.find((check) => check.item === item)?.done ?? false
+      }));
+
+    setDraft((current) => current ? { ...current, checklist } : current);
+  }
+
+  function toggleChecklist(index: number) {
+    setDraft((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        checklist: current.checklist.map((check, checkIndex) => checkIndex === index ? { ...check, done: !check.done } : check)
+      };
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+        <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 md:flex-row md:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Cadastro de compromisso</p>
+            <h2 className="mt-1 text-3xl font-black">Editar agenda</h2>
+            <p className="mt-2 text-sm text-zinc-500">{draft.id}</p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onSave} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Salvar compromisso</button>
+            <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Título do compromisso</span>
+            <input value={draft.title} onChange={(event) => setField("title", event.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" placeholder="Ex: Instalação de refletor externo" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Cliente</span>
+            <input value={draft.client} onChange={(event) => setField("client", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="Nome do cliente" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Telefone</span>
+            <input value={draft.phone} onChange={(event) => setField("phone", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="(11) 99999-9999" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Endereço</span>
+            <input value={draft.address} onChange={(event) => setField("address", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="Endereço do atendimento" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Data</span>
+            <input type="date" value={draft.date} onChange={(event) => setField("date", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+              <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Início</span>
+              <input type="time" value={draft.start} onChange={(event) => setField("start", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+            </label>
+
+            <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+              <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Fim</span>
+              <input type="time" value={draft.end} onChange={(event) => setField("end", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+            </label>
+          </div>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Tipo</span>
+            <select value={draft.type} onChange={(event) => setField("type", event.target.value)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {types.filter((type) => type !== "Todos").map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Status</span>
+            <select value={draft.status} onChange={(event) => setField("status", event.target.value as Status)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {statusColumns.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Prioridade</span>
+            <select value={draft.priority} onChange={(event) => setField("priority", event.target.value as Priority)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Baixa", "Média", "Alta", "Urgente"].map((priority) => <option key={priority}>{priority}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Técnico</span>
+            <select value={draft.technician} onChange={(event) => setField("technician", event.target.value)} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {technicians.map((tech) => <option key={tech.name}>{tech.name}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">OS vinculada</span>
+            <input value={draft.os} onChange={(event) => setField("os", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="OS-xxxxx ou Sem OS" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Cotação</span>
+            <input value={draft.quote} onChange={(event) => setField("quote", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="ORC-xxxxx ou Sem cotação" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Valor previsto</span>
+            <input type="number" value={draft.value} onChange={(event) => setField("value", Number(event.target.value))} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Região</span>
+            <input value={draft.region} onChange={(event) => setField("region", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Materiais</span>
+            <input value={draft.materials.join(", ")} onChange={(event) => setMaterials(event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="EPI, Alicate, Multímetro" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Checklist, um item por linha</span>
+            <textarea value={draft.checklist.map((item) => item.item).join("\n")} onChange={(event) => setChecklist(event.target.value)} rows={5} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" />
+          </label>
+
+          <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Marcar itens do checklist</p>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {draft.checklist.map((item, index) => (
+                <button key={`${item.item}-${index}`} onClick={() => toggleChecklist(index)} className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/30 p-3 text-left">
+                  <span className={`grid h-6 w-6 place-items-center rounded-full ${item.done ? "bg-volt-ok text-black" : "bg-white/10 text-zinc-500"}`}>{item.done && <CheckCircle2 size={15} />}</span>
+                  <span className="text-sm font-bold text-zinc-300">{item.item}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Observações</span>
+            <textarea value={draft.notes} onChange={(event) => setField("notes", event.target.value)} rows={4} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" placeholder="Observações do atendimento" />
+          </label>
+        </div>
+      </div>
+    </div>
   );
 }
