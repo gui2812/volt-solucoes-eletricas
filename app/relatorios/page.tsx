@@ -9,189 +9,183 @@ import {
   ClipboardCheck,
   Download,
   FileText,
-  Filter,
-  FolderOpen,
   Gauge,
   LineChart,
-  Package,
   PieChart,
-  Plus,
-  Search,
-  Settings2,
+  RefreshCcw,
   Target,
+  TrendingDown,
   TrendingUp,
   Users,
   Wallet,
   Wrench,
   Zap
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-type ReportStatus = "Gerado" | "Em processamento" | "Erro" | "Agendado" | "Enviado" | "Arquivado" | "Favorito";
-type ReportType = "Executivo" | "Financeiro" | "Operacional" | "Técnico" | "Clientes" | "Materiais" | "Personalizado";
+type AnyRecord = Record<string, unknown>;
 
-type ReportModel = {
-  id: string;
-  name: string;
-  type: ReportType;
-  description: string;
-  modules: string[];
-  indicators: string[];
-  charts: string[];
-  tables: string[];
-  status: ReportStatus;
-};
+type ReportKind =
+  | "Executivo"
+  | "Financeiro"
+  | "Operacional"
+  | "Clientes"
+  | "Agenda"
+  | "Comercial";
 
 type ReportHistory = {
   id: string;
-  name: string;
-  type: ReportType;
-  period: string;
-  generatedBy: string;
+  kind: ReportKind;
+  title: string;
   date: string;
   format: "PDF" | "CSV";
-  status: ReportStatus;
+  status: "Gerado" | "Erro";
 };
 
-const models: ReportModel[] = [
+const STORAGE = {
+  quotes: "volt_cotacoes_premium_v1",
+  orders: "volt_ordens_premium_v1",
+  agenda: "volt_agenda_premium_v1",
+  finance: "volt_financeiro_premium_v1",
+  clients: "volt_clientes_crm_v1",
+  goals: "volt_financeiro_metas_v1",
+  reports: "volt_relatorios_historico_v1"
+};
+
+const reportModels: {
+  kind: ReportKind;
+  title: string;
+  description: string;
+  modules: string[];
+  icon: typeof BarChart3;
+}[] = [
   {
-    id: "MOD-001",
-    name: "Relatório Executivo Mensal",
-    type: "Executivo",
-    description: "Visão geral da empresa com faturamento, despesas, lucro, clientes, OS, cotações, materiais e metas.",
-    modules: ["Financeiro", "Clientes", "OS", "Cotações", "Materiais"],
-    indicators: ["Receita", "Despesa", "Lucro", "Margem", "Metas"],
-    charts: ["Linha", "Colunas", "Rosca", "KPI"],
-    tables: ["Resumo financeiro", "Serviços", "Alertas"],
-    status: "Favorito"
+    kind: "Executivo",
+    title: "Relatório Executivo Geral",
+    description: "Visão completa da operação: financeiro, orçamentos, OS, agenda, clientes, metas e alertas.",
+    modules: ["Dashboard", "Financeiro", "Clientes", "OS", "Agenda", "Cotações"],
+    icon: BarChart3
   },
   {
-    id: "MOD-002",
-    name: "Relatório Financeiro Completo",
-    type: "Financeiro",
-    description: "Receitas, despesas, fluxo de caixa, contas a pagar, contas a receber, centro de custo e orçado x realizado.",
-    modules: ["Financeiro", "Centro de custo"],
-    indicators: ["Receita", "Despesa", "Lucro", "Inadimplência"],
-    charts: ["Linha", "Cascata", "Rosca", "Barras"],
-    tables: ["Lançamentos", "Contas", "Centros de custo"],
-    status: "Gerado"
+    kind: "Financeiro",
+    title: "Relatório Financeiro Completo",
+    description: "Receitas, despesas, contas a pagar, contas a receber, lucro, metas, vencidos e fluxo.",
+    modules: ["Financeiro", "Metas", "OS"],
+    icon: Wallet
   },
   {
-    id: "MOD-003",
-    name: "Relatório de Ordens de Serviço",
-    type: "Operacional",
-    description: "Serviços concluídos, pendentes, atrasados, cancelados, produtividade por técnico e custos por OS.",
-    modules: ["Ordens", "Agenda", "Técnicos"],
-    indicators: ["Conclusão", "Atraso", "Produtividade", "Tempo médio"],
-    charts: ["Colunas", "Barras", "KPI"],
-    tables: ["OS detalhadas", "Técnicos", "Clientes"],
-    status: "Gerado"
+    kind: "Operacional",
+    title: "Relatório Operacional de OS",
+    description: "Ordens de serviço, status, valores, agenda, pagamentos e produtividade.",
+    modules: ["OS", "Agenda", "Financeiro"],
+    icon: Wrench
   },
   {
-    id: "MOD-004",
-    name: "Relatório Técnico de Atendimento",
-    type: "Técnico",
-    description: "Documento técnico com cliente, local, diagnóstico, execução, materiais, fotos, recomendações e assinaturas.",
-    modules: ["OS", "Materiais", "Clientes"],
-    indicators: ["Tensão", "Corrente", "Potência", "Não conformidades"],
-    charts: ["KPI"],
-    tables: ["Medições", "Materiais", "Pendências"],
-    status: "Agendado"
+    kind: "Clientes",
+    title: "Relatório de Clientes e CRM",
+    description: "Carteira, leads, inadimplência, documentos, histórico e ranking financeiro por cliente.",
+    modules: ["Clientes", "Financeiro", "Cotações"],
+    icon: Users
   },
   {
-    id: "MOD-005",
-    name: "Relatório de Cliente Individual",
-    type: "Clientes",
-    description: "Histórico do cliente, OS, cotações, agenda, financeiro, documentos e recomendações de relacionamento.",
-    modules: ["Clientes", "Financeiro", "OS", "Cotações"],
-    indicators: ["Faturado", "Aberto", "Vencido", "Ticket médio"],
-    charts: ["Linha", "Barras"],
-    tables: ["Histórico", "Financeiro", "Serviços"],
-    status: "Gerado"
+    kind: "Agenda",
+    title: "Relatório de Agenda Técnica",
+    description: "Compromissos, técnicos, status, atrasos, recorrências e OS vinculadas.",
+    modules: ["Agenda", "OS"],
+    icon: CalendarDays
   },
   {
-    id: "MOD-006",
-    name: "Relatório de Estoque",
-    type: "Materiais",
-    description: "Estoque atual, baixo estoque, sem estoque, compras, fornecedores, movimentações, inventário e curva ABC.",
-    modules: ["Materiais", "Compras", "Fornecedores"],
-    indicators: ["Valor estoque", "Ruptura", "Giro", "Reservas"],
-    charts: ["Linha", "Pareto", "Rosca", "Cascata"],
-    tables: ["Estoque", "Movimentações", "Compras"],
-    status: "Favorito"
-  },
-  {
-    id: "MOD-007",
-    name: "Relatório Completo da Empresa",
-    type: "Executivo",
-    description: "Relatório completo com todos os módulos, indicadores, gráficos, alertas e recomendações automáticas.",
-    modules: ["Todos"],
-    indicators: ["Todos os KPIs"],
-    charts: ["Todos"],
-    tables: ["Todas"],
-    status: "Favorito"
+    kind: "Comercial",
+    title: "Relatório Comercial de Orçamentos",
+    description: "Funil de propostas, assinaturas, aprovações, recusas, negociação e conversão em OS.",
+    modules: ["Cotações", "Assinaturas", "Clientes"],
+    icon: FileText
   }
 ];
 
-const history: ReportHistory[] = [
-  { id: "REL-001", name: "Executivo mensal Junho", type: "Executivo", period: "Junho/2026", generatedBy: "Guilherme", date: "2026-06-25", format: "PDF", status: "Gerado" },
-  { id: "REL-002", name: "Financeiro semanal", type: "Financeiro", period: "Semana atual", generatedBy: "Guilherme", date: "2026-06-24", format: "PDF", status: "Enviado" },
-  { id: "REL-003", name: "Estoque crítico", type: "Materiais", period: "Junho/2026", generatedBy: "Guilherme", date: "2026-06-23", format: "CSV", status: "Gerado" },
-  { id: "REL-004", name: "OS concluídas", type: "Operacional", period: "Junho/2026", generatedBy: "Guilherme", date: "2026-06-22", format: "PDF", status: "Favorito" },
-  { id: "REL-005", name: "Relatório técnico QDC", type: "Técnico", period: "OS-1042", generatedBy: "Guilherme", date: "2026-06-21", format: "PDF", status: "Arquivado" }
-];
-
-const monthly = [
-  { month: "Jan", receita: 5200, despesa: 2300, lucro: 2900, os: 6, cotacoes: 10 },
-  { month: "Fev", receita: 7800, despesa: 3100, lucro: 4700, os: 8, cotacoes: 13 },
-  { month: "Mar", receita: 9600, despesa: 4200, lucro: 5400, os: 10, cotacoes: 16 },
-  { month: "Abr", receita: 13200, despesa: 5100, lucro: 8100, os: 12, cotacoes: 19 },
-  { month: "Mai", receita: 15800, despesa: 6300, lucro: 9500, os: 13, cotacoes: 24 },
-  { month: "Jun", receita: 18450, despesa: 7240, lucro: 11210, os: 14, cotacoes: 28 }
-];
-
-const ranking = [
-  { label: "Condomínio JK 1455", value: 24800 },
-  { label: "Escritório corporativo", value: 11800 },
-  { label: "Clínica Vida", value: 9800 },
-  { label: "Sala Vikings", value: 1600 },
-  { label: "Cliente residencial", value: 1670 }
-];
-
-const tabs = [
-  "Visão Geral",
-  "Relatórios Executivos",
-  "Relatórios Financeiros",
-  "Relatórios Operacionais",
-  "Relatórios Técnicos",
-  "Relatórios de Clientes",
-  "Relatórios de Materiais",
-  "Relatórios Personalizados",
-  "Histórico de Relatórios"
-];
-
-const statusColors: Record<ReportStatus, string> = {
-  Gerado: "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
-  "Em processamento": "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25",
-  Erro: "bg-red-500/15 text-red-300 border-red-500/20",
-  Agendado: "bg-blue-500/15 text-blue-300 border-blue-500/20",
-  Enviado: "bg-purple-500/15 text-purple-300 border-purple-500/20",
-  Arquivado: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
-  Favorito: "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25"
-};
-
-const typeColors: Record<ReportType, string> = {
-  Executivo: "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25",
-  Financeiro: "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
-  Operacional: "bg-blue-500/15 text-blue-300 border-blue-500/20",
-  Técnico: "bg-purple-500/15 text-purple-300 border-purple-500/20",
-  Clientes: "bg-orange-500/15 text-orange-300 border-orange-500/20",
-  Materiais: "bg-cyan-500/15 text-cyan-300 border-cyan-500/20",
-  Personalizado: "bg-white/10 text-zinc-300 border-white/10"
-};
-
 function currency(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function percent(value: number) {
+  if (!Number.isFinite(value)) return "0%";
+  return `${Math.round(value)}%`;
+}
+
+function todayIso() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function textValue(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function dateValue(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function readArray(key: string) {
+  if (typeof window === "undefined") return [] as AnyRecord[];
+
+  try {
+    const saved = localStorage.getItem(key);
+    const parsed = saved ? JSON.parse(saved) : [];
+
+    return Array.isArray(parsed) ? parsed as AnyRecord[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveArray(key: string, value: unknown[]) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function quoteTotal(quote: AnyRecord) {
+  const items = Array.isArray(quote.items) ? quote.items as AnyRecord[] : [];
+
+  return items.reduce((sum, item) => {
+    const quantity = numberValue(item.quantity);
+    const unitPrice = numberValue(item.unitPrice);
+    const discount = numberValue(item.discount);
+
+    return sum + quantity * unitPrice * (1 - discount / 100);
+  }, 0);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function statusClass(status: string) {
+  if (["Recebido", "Pago", "Aprovada", "Assinada", "Finalizada", "Concluído", "Ativo"].includes(status)) {
+    return "bg-volt-ok/15 text-volt-ok border-volt-ok/20";
+  }
+
+  if (["Vencido", "Vencida", "Recusada", "Cancelado", "Cancelada", "Inadimplente", "Atrasado"].includes(status)) {
+    return "bg-red-500/15 text-red-300 border-red-500/20";
+  }
+
+  if (["Em andamento", "Em atendimento", "Em negociação", "Aberto"].includes(status)) {
+    return "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25";
+  }
+
+  return "bg-white/10 text-zinc-300 border-white/10";
 }
 
 function Badge({ className, children }: { className: string; children: React.ReactNode }) {
@@ -201,311 +195,494 @@ function Badge({ className, children }: { className: string; children: React.Rea
 function ProgressBar({ value, danger = false }: { value: number; danger?: boolean }) {
   return (
     <div className="h-2 overflow-hidden rounded-full bg-white/10">
-      <div className={`h-full rounded-full ${danger ? "bg-red-400" : "bg-volt-yellow"} shadow-[0_0_18px_rgba(255,203,47,.35)]`} style={{ width: `${Math.min(value, 100)}%` }} />
+      <div
+        className={`h-full rounded-full ${danger ? "bg-red-400" : "bg-volt-yellow"} shadow-[0_0_18px_rgba(255,203,47,.35)]`}
+        style={{ width: `${Math.max(0, Math.min(value, 100))}%` }}
+      />
     </div>
   );
 }
 
-function ChartCard({ title, subtitle, icon, children }: { title: string; subtitle: string; icon: React.ReactNode; children: React.ReactNode }) {
+function KpiCard({
+  label,
+  value,
+  note,
+  icon: Icon,
+  tone = "text-volt-yellow"
+}: {
+  label: string;
+  value: string;
+  note: string;
+  icon: typeof Wallet;
+  tone?: string;
+}) {
+  return (
+    <article className="card-premium rounded-3xl p-5">
+      <Icon className={tone} size={26} />
+      <p className={`mt-5 text-3xl font-black ${tone}`}>{value}</p>
+      <p className="mt-1 text-sm font-black">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-zinc-500">{note}</p>
+    </article>
+  );
+}
+
+function Panel({
+  title,
+  subtitle,
+  icon,
+  children
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="card-premium rounded-[2rem] p-5 md:p-6">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Business intelligence</p>
+          <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">{subtitle}</p>
           <h2 className="mt-1 text-2xl font-black">{title}</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-500">{subtitle}</p>
         </div>
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-volt-yellow/25 bg-volt-yellow/10 text-volt-yellow">{icon}</div>
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-volt-yellow/25 bg-volt-yellow/10 text-volt-yellow">
+          {icon}
+        </div>
       </div>
       {children}
     </section>
   );
 }
 
-function MainLineChart() {
-  const width = 760;
-  const height = 270;
-  const pad = 34;
-  const max = Math.max(...monthly.flatMap((item) => [item.receita, item.despesa, item.lucro]));
+function makeReportHtml(kind: ReportKind, data: ReturnType<typeof calculateReportData>) {
+  const safeKind = escapeHtml(kind);
+  const generatedAt = new Date().toLocaleString("pt-BR");
+  const topClients = data.topClients.slice(0, 8);
+  const pendingFinance = data.pendingFinance.slice(0, 10);
+  const recentOrders = data.recentOrders.slice(0, 10);
+  const nextAppointments = data.nextAppointments.slice(0, 10);
+  const quotePipeline = data.quotePipeline;
 
-  function points(key: "receita" | "despesa" | "lucro") {
-    return monthly.map((item, index) => {
-      const x = pad + (index * (width - pad * 2)) / (monthly.length - 1);
-      const y = height - pad - (item[key] / max) * (height - pad * 2);
-      return `${x},${y}`;
-    }).join(" ");
-  }
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Relatório ${safeKind} Volt</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f4f4f0;
+      color: #121212;
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page { padding: 7mm 0; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    .hero {
+      border-radius: 24px;
+      background: linear-gradient(135deg, #080808, #191810);
+      color: white;
+      padding: 28px;
+      border: 1px solid #29261a;
+      box-shadow: 0 20px 60px rgba(0,0,0,.16);
+    }
+    .kicker {
+      color: #ffcb2f;
+      font-weight: 900;
+      letter-spacing: .22em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+    h1 { margin: 10px 0 0; font-size: 34px; line-height: 1.06; }
+    h2 { margin: 0 0 12px; font-size: 23px; }
+    h3 { margin: 0; font-size: 15px; }
+    p { margin: 0; line-height: 1.55; }
+    .muted { color: #666; font-size: 12px; }
+    .hero .muted { color: #bdbdbd; }
+    .grid { display: grid; gap: 12px; }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .card {
+      background: white;
+      border: 1px solid #e5e2d7;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.06);
+    }
+    .section { margin-top: 16px; }
+    .kpi-value { font-size: 23px; font-weight: 900; color: #111; margin-top: 8px; }
+    .yellow { color: #d7a900; }
+    .green { color: #139447; }
+    .red { color: #c82f2f; }
+    .blue { color: #2768d8; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 11px; }
+    th { text-align: left; color: #777; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; padding: 0 10px; }
+    td { background: white; padding: 10px; border-top: 1px solid #e8e5dc; border-bottom: 1px solid #e8e5dc; vertical-align: top; }
+    td:first-child { border-left: 1px solid #e8e5dc; border-radius: 12px 0 0 12px; font-weight: 800; }
+    td:last-child { border-right: 1px solid #e8e5dc; border-radius: 0 12px 12px 0; }
+    .badge { display: inline-block; border-radius: 999px; padding: 4px 8px; background: #fff3bd; color: #7a5b00; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+    .bar { height: 8px; border-radius: 999px; background: #ece9df; overflow: hidden; margin-top: 8px; }
+    .bar span { display:block; height:100%; background:#ffcb2f; border-radius:999px; }
+    .footer { margin-top: 14px; color:#777; font-size:10px; display:flex; justify-content:space-between; }
+    .note { border-left: 4px solid #ffcb2f; background:#fff8d7; padding:12px; border-radius:12px; }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="hero">
+      <div class="kicker">Volt Soluções Elétricas • ${safeKind}</div>
+      <h1>Relatório ${safeKind}</h1>
+      <p class="muted">Gerado em ${generatedAt}. Dados consolidados de orçamentos, assinaturas, OS, agenda, financeiro, clientes e metas.</p>
+    </div>
 
-  return (
-    <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/35 p-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[270px] w-full">
-        {[0, 1, 2, 3].map((line) => {
-          const y = pad + (line * (height - pad * 2)) / 3;
-          return <line key={line} x1={pad} x2={width - pad} y1={y} y2={y} stroke="rgba(255,255,255,.08)" />;
-        })}
-        <polyline fill="none" stroke="#ffcb2f" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" points={points("receita")} />
-        <polyline fill="none" stroke="#ef4444" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={points("despesa")} />
-        <polyline fill="none" stroke="#22c55e" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={points("lucro")} />
-        {monthly.map((item, index) => {
-          const x = pad + (index * (width - pad * 2)) / (monthly.length - 1);
-          return <text key={item.month} x={x} y={height - 6} textAnchor="middle" fill="rgba(255,255,255,.55)" fontSize="13" fontWeight="700">{item.month}</text>;
-        })}
-      </svg>
-      <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-zinc-400">
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-volt-yellow" /> Receita</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-red-500" /> Despesa</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-volt-ok" /> Lucro</span>
+    <div class="grid grid-4 section">
+      <div class="card"><div class="muted">Receita recebida</div><div class="kpi-value green">${currency(data.revenueReceived)}</div></div>
+      <div class="card"><div class="muted">Lucro parcial</div><div class="kpi-value yellow">${currency(data.profit)}</div></div>
+      <div class="card"><div class="muted">OS abertas</div><div class="kpi-value blue">${data.ordersOpen}</div></div>
+      <div class="card"><div class="muted">Agenda hoje</div><div class="kpi-value yellow">${data.appointmentsToday}</div></div>
+    </div>
+
+    <div class="grid grid-4 section">
+      <div class="card"><div class="muted">Orçamentos aprovados</div><div class="kpi-value green">${data.approvedQuotes}</div></div>
+      <div class="card"><div class="muted">Assinaturas</div><div class="kpi-value yellow">${data.signedQuotes}</div></div>
+      <div class="card"><div class="muted">Contas em aberto</div><div class="kpi-value">${currency(data.revenueOpen)}</div></div>
+      <div class="card"><div class="muted">Vencidos</div><div class="kpi-value red">${currency(data.overdue)}</div></div>
+    </div>
+
+    <div class="section card">
+      <h2>Resumo executivo</h2>
+      <p>O sistema possui <strong>${data.clients.length}</strong> cliente(s), <strong>${data.quotes.length}</strong> orçamento(s), <strong>${data.orders.length}</strong> ordem(ns) de serviço, <strong>${data.agenda.length}</strong> compromisso(s) e <strong>${data.finance.length}</strong> lançamento(s) financeiro(s). O resultado parcial registrado é de <strong>${currency(data.profit)}</strong>.</p>
+      <div class="bar"><span style="width:${Math.min(data.monthlyGoalPercent, 100)}%"></span></div>
+      <p class="muted">Meta mensal: ${percent(data.monthlyGoalPercent)} concluída.</p>
+    </div>
+    <div class="footer"><span>Volt Soluções Elétricas</span><span>Página 1</span></div>
+  </section>
+
+  <section class="page">
+    <div class="hero">
+      <div class="kicker">Financeiro e operação</div>
+      <h1>Contas, OS e agenda</h1>
+      <p class="muted">Acompanhamento operacional com pendências e próximos atendimentos.</p>
+    </div>
+
+    <div class="grid grid-2 section">
+      <div class="card">
+        <h2>Financeiro pendente</h2>
+        <table>
+          <thead><tr><th>Lançamento</th><th>Status</th><th>Vencimento</th><th>Valor</th></tr></thead>
+          <tbody>
+            ${pendingFinance.map((item) => `
+              <tr>
+                <td>${escapeHtml(textValue(item.title, "Lançamento"))}<br><span class="muted">${escapeHtml(textValue(item.clientSupplier, ""))}</span></td>
+                <td><span class="badge">${escapeHtml(textValue(item.status, "Aberto"))}</span></td>
+                <td>${escapeHtml(dateValue(item.dueDate))}</td>
+                <td>${currency(numberValue(item.budgeted))}</td>
+              </tr>
+            `).join("") || `<tr><td colspan="4">Sem pendências financeiras.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Próximos atendimentos</h2>
+        <table>
+          <thead><tr><th>Cliente</th><th>Data</th><th>Status</th><th>OS</th></tr></thead>
+          <tbody>
+            ${nextAppointments.map((item) => `
+              <tr>
+                <td>${escapeHtml(textValue(item.client, "Cliente"))}<br><span class="muted">${escapeHtml(textValue(item.title, ""))}</span></td>
+                <td>${escapeHtml(dateValue(item.date))} ${escapeHtml(textValue(item.start))}</td>
+                <td><span class="badge">${escapeHtml(textValue(item.status, "Agendado"))}</span></td>
+                <td>${escapeHtml(textValue(item.os, "Sem OS"))}</td>
+              </tr>
+            `).join("") || `<tr><td colspan="4">Sem compromissos encontrados.</td></tr>`}
+          </tbody>
+        </table>
       </div>
     </div>
-  );
-}
 
-function ColumnCompare() {
-  const max = Math.max(...monthly.flatMap((item) => [item.os, item.cotacoes]));
+    <div class="section card">
+      <h2>Ordens recentes</h2>
+      <table>
+        <thead><tr><th>OS</th><th>Cliente</th><th>Status</th><th>Valor</th><th>Pago</th></tr></thead>
+        <tbody>
+          ${recentOrders.map((item) => `
+            <tr>
+              <td>${escapeHtml(textValue(item.id, "OS"))}</td>
+              <td>${escapeHtml(textValue(item.client, "Cliente"))}</td>
+              <td><span class="badge">${escapeHtml(textValue(item.status, "Aberta"))}</span></td>
+              <td>${currency(numberValue(item.value))}</td>
+              <td>${currency(numberValue(item.paid))}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="5">Nenhuma OS encontrada.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div class="footer"><span>Volt Soluções Elétricas</span><span>Página 2</span></div>
+  </section>
 
-  return (
-    <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
-      <div className="flex h-[260px] items-end gap-3">
-        {monthly.map((item) => (
-          <div key={item.month} className="flex flex-1 flex-col items-center gap-3">
-            <div className="flex h-52 w-full items-end justify-center gap-2">
-              <div className="w-5 rounded-t-full bg-volt-yellow" style={{ height: `${(item.cotacoes / max) * 100}%` }} />
-              <div className="w-5 rounded-t-full bg-volt-ok" style={{ height: `${(item.os / max) * 100}%` }} />
-            </div>
-            <span className="text-xs font-bold text-zinc-500">{item.month}</span>
-          </div>
-        ))}
+  <section class="page">
+    <div class="hero">
+      <div class="kicker">Clientes e comercial</div>
+      <h1>Carteira, funil e alertas</h1>
+      <p class="muted">Visão comercial para decisões e acompanhamento de crescimento.</p>
+    </div>
+
+    <div class="grid grid-2 section">
+      <div class="card">
+        <h2>Top clientes</h2>
+        <table>
+          <thead><tr><th>Cliente</th><th>Status</th><th>Faturado</th><th>Aberto</th></tr></thead>
+          <tbody>
+            ${topClients.map((client) => `
+              <tr>
+                <td>${escapeHtml(textValue(client.name, "Cliente"))}</td>
+                <td><span class="badge">${escapeHtml(textValue(client.status, ""))}</span></td>
+                <td>${currency(numberValue(client.totalRevenue))}</td>
+                <td>${currency(numberValue(client.openAmount))}</td>
+              </tr>
+            `).join("") || `<tr><td colspan="4">Nenhum cliente encontrado.</td></tr>`}
+          </tbody>
+        </table>
       </div>
-      <div className="mt-4 flex flex-wrap gap-3 text-xs font-bold text-zinc-400">
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-volt-yellow" /> Cotações</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-5 rounded-full bg-volt-ok" /> OS</span>
+
+      <div class="card">
+        <h2>Funil de orçamentos</h2>
+        ${quotePipeline.map((item) => `
+          <div style="margin-bottom: 10px;">
+            <strong>${escapeHtml(item.status)}</strong>
+            <span style="float:right;">${item.count}</span>
+            <div class="bar"><span style="width:${Math.min((item.count / Math.max(data.quotes.length, 1)) * 100, 100)}%"></span></div>
+          </div>
+        `).join("")}
       </div>
     </div>
-  );
-}
 
-function DonutComposition() {
-  const data = [
-    { label: "QDC", value: 34, color: "#ffcb2f" },
-    { label: "Manutenção", value: 24, color: "#22c55e" },
-    { label: "Circuitos", value: 18, color: "#38bdf8" },
-    { label: "Automação", value: 12, color: "#a78bfa" },
-    { label: "Iluminação", value: 12, color: "#f97316" }
-  ];
-  let start = 0;
-  const conic = `conic-gradient(${data.map((item) => {
-    const end = start + item.value;
-    const part = `${item.color} ${start}% ${end}%`;
-    start = end;
-    return part;
-  }).join(", ")})`;
-
-  return (
-    <div className="grid gap-5 md:grid-cols-[220px_1fr] md:items-center">
-      <div className="mx-auto grid h-56 w-56 place-items-center rounded-full border border-white/10 bg-black/30 p-4">
-        <div className="grid h-48 w-48 place-items-center rounded-full" style={{ background: conic }}>
-          <div className="grid h-28 w-28 place-items-center rounded-full border border-white/10 bg-[#090d12] text-center">
-            <div>
-              <p className="text-3xl font-black text-volt-yellow">100%</p>
-              <p className="text-xs font-bold text-zinc-500">serviços</p>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="space-y-3">
-        {data.map((item) => (
-          <div key={item.label} className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/35 p-3">
-            <div className="flex items-center gap-3">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className="text-sm font-bold text-zinc-300">{item.label}</span>
-            </div>
-            <span className="font-black">{item.value}%</span>
-          </div>
-        ))}
+    <div class="section card">
+      <h2>Recomendações automáticas</h2>
+      <div class="note">
+        <p><strong>1.</strong> Priorizar cobrança de vencidos: ${currency(data.overdue)}.</p>
+        <p><strong>2.</strong> Acompanhar propostas em aberto: ${currency(data.quoteValueOpen)} em negociação.</p>
+        <p><strong>3.</strong> Converter OS abertas em agenda e financeiro para manter o fluxo completo.</p>
+        <p><strong>4.</strong> Manter documentos vinculados ao cliente para melhorar histórico, provas de execução e relatórios.</p>
       </div>
     </div>
-  );
+    <div class="footer"><span>Volt Soluções Elétricas</span><span>Página 3</span></div>
+  </section>
+</body>
+</html>`;
 }
 
-function RankingBars() {
-  const max = Math.max(...ranking.map((item) => item.value));
+function calculateReportData(data: {
+  quotes: AnyRecord[];
+  orders: AnyRecord[];
+  agenda: AnyRecord[];
+  finance: AnyRecord[];
+  clients: AnyRecord[];
+  goals: AnyRecord[];
+}) {
+  const today = todayIso();
 
-  return (
-    <div className="space-y-4">
-      {ranking.map((item) => (
-        <div key={item.label} className="rounded-2xl border border-white/10 bg-black/35 p-4">
-          <div className="mb-2 flex items-center justify-between gap-4">
-            <p className="font-black">{item.label}</p>
-            <p className="text-sm font-black text-volt-yellow">{currency(item.value)}</p>
-          </div>
-          <ProgressBar value={(item.value / max) * 100} />
-        </div>
-      ))}
-    </div>
-  );
-}
+  const revenueReceived = data.finance
+    .filter((item) => ["Receita", "Conta a receber"].includes(textValue(item.type)))
+    .filter((item) => textValue(item.status) === "Recebido")
+    .reduce((sum, item) => sum + numberValue(item.actual, numberValue(item.budgeted)), 0);
 
-function CashWaterfall() {
-  const data = [
-    { label: "Saldo inicial", value: 4200, type: "base" },
-    { label: "Receitas", value: 18450, type: "positive" },
-    { label: "Despesas", value: -7240, type: "negative" },
-    { label: "Materiais", value: -2860, type: "negative" },
-    { label: "Saldo final", value: 12550, type: "base" }
-  ];
-  const max = Math.max(...data.map((item) => Math.abs(item.value)));
+  const revenueOpen = data.finance
+    .filter((item) => ["Receita", "Conta a receber"].includes(textValue(item.type)))
+    .filter((item) => ["Aberto", "Vencido"].includes(textValue(item.status)))
+    .reduce((sum, item) => sum + Math.max(numberValue(item.budgeted) - numberValue(item.actual), 0), 0);
 
-  return (
-    <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
-      <div className="grid h-72 grid-cols-5 items-end gap-3">
-        {data.map((item) => (
-          <div key={item.label} className="flex h-full flex-col justify-end gap-3">
-            <div className={`rounded-t-2xl ${item.type === "negative" ? "bg-red-400" : item.type === "positive" ? "bg-volt-ok" : "bg-volt-yellow"}`} style={{ height: `${(Math.abs(item.value) / max) * 80 + 12}%` }} />
-            <p className="text-center text-xs font-bold text-zinc-500">{item.label}</p>
-            <p className="text-center text-xs font-black text-zinc-300">{currency(item.value)}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+  const expenses = data.finance
+    .filter((item) => ["Despesa", "Conta a pagar"].includes(textValue(item.type)))
+    .filter((item) => ["Pago", "Aberto", "Vencido"].includes(textValue(item.status)))
+    .reduce((sum, item) => sum + numberValue(item.actual, numberValue(item.budgeted)), 0);
 
-function ReportCard({ model, onGenerate }: { model: ReportModel; onGenerate: (model: ReportModel) => void }) {
-  return (
-    <article className="card-premium rounded-[2rem] p-5">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div className="grid h-12 w-12 place-items-center rounded-2xl border border-volt-yellow/25 bg-volt-yellow/10 text-volt-yellow">
-          <FileText size={24} />
-        </div>
-        <Badge className={typeColors[model.type]}>{model.type}</Badge>
-      </div>
+  const overdue = data.finance
+    .filter((item) => textValue(item.status) === "Vencido")
+    .reduce((sum, item) => sum + numberValue(item.budgeted), 0);
 
-      <h3 className="text-xl font-black">{model.name}</h3>
-      <p className="mt-2 text-sm leading-6 text-zinc-500">{model.description}</p>
+  const quoteValueOpen = data.quotes
+    .filter((quote) => !["Aprovada", "Recusada", "Vencida", "Convertida em OS"].includes(textValue(quote.status)))
+    .reduce((sum, quote) => sum + quoteTotal(quote), 0);
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {model.modules.slice(0, 4).map((module) => (
-          <span key={module} className="rounded-full border border-white/10 bg-white/[.035] px-3 py-2 text-xs font-bold text-zinc-400">{module}</span>
-        ))}
-      </div>
+  const signedQuotes = data.quotes.filter((quote) => textValue(quote.signatureStatus) === "Assinada").length;
+  const approvedQuotes = data.quotes.filter((quote) => ["Aprovada", "Convertida em OS"].includes(textValue(quote.status))).length;
+  const ordersOpen = data.orders.filter((order) => !["Finalizada", "Cancelada"].includes(textValue(order.status))).length;
+  const ordersProgress = data.orders.filter((order) => textValue(order.status) === "Em andamento").length;
+  const ordersFinished = data.orders.filter((order) => textValue(order.status) === "Finalizada").length;
+  const appointmentsToday = data.agenda.filter((item) => dateValue(item.date) === today).length;
+  const appointmentsOpen = data.agenda.filter((item) => !["Concluído", "Cancelado"].includes(textValue(item.status))).length;
 
-      <button onClick={() => onGenerate(model)} className="btn-primary mt-5 w-full">
-        Gerar agora
-      </button>
-    </article>
-  );
+  const monthlyRevenueGoal = data.goals.find((goal) => textValue(goal.period) === "Mensal" && textValue(goal.category) === "Faturamento");
+  const monthlyTarget = numberValue(monthlyRevenueGoal?.target, 25000);
+  const monthlyActual = numberValue(monthlyRevenueGoal?.actual, revenueReceived + revenueOpen);
+  const monthlyGoalPercent = monthlyTarget ? monthlyActual / monthlyTarget * 100 : 0;
+
+  const topClients = [...data.clients]
+    .sort((a, b) => numberValue(b.totalRevenue) - numberValue(a.totalRevenue));
+
+  const pendingFinance = data.finance
+    .filter((item) => ["Aberto", "Vencido"].includes(textValue(item.status)))
+    .sort((a, b) => dateValue(a.dueDate).localeCompare(dateValue(b.dueDate)));
+
+  const recentOrders = [...data.orders].reverse();
+
+  const nextAppointments = [...data.agenda]
+    .filter((item) => dateValue(item.date) >= today || !["Concluído", "Cancelado"].includes(textValue(item.status)))
+    .sort((a, b) => `${dateValue(a.date)} ${textValue(a.start)}`.localeCompare(`${dateValue(b.date)} ${textValue(b.start)}`));
+
+  const quoteColumns = ["Rascunho", "Enviada", "Aguardando retorno", "Em negociação", "Aprovada", "Convertida em OS"];
+  const quotePipeline = quoteColumns.map((status) => ({
+    status,
+    count: data.quotes.filter((quote) => textValue(quote.status) === status).length
+  }));
+
+  return {
+    ...data,
+    revenueReceived,
+    revenueOpen,
+    expenses,
+    profit: revenueReceived - expenses,
+    overdue,
+    quoteValueOpen,
+    signedQuotes,
+    approvedQuotes,
+    ordersOpen,
+    ordersProgress,
+    ordersFinished,
+    appointmentsToday,
+    appointmentsOpen,
+    monthlyTarget,
+    monthlyActual,
+    monthlyGoalPercent,
+    topClients,
+    pendingFinance,
+    recentOrders,
+    nextAppointments,
+    quotePipeline
+  };
 }
 
 export default function RelatoriosPage() {
   const [activeTab, setActiveTab] = useState("Visão Geral");
-  const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("Todos");
-  const [periodFilter, setPeriodFilter] = useState("Mês atual");
-  const [generated, setGenerated] = useState<ReportHistory[]>(history);
-  const [selected, setSelected] = useState<ReportModel | null>(models[0]);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [storageReady, setStorageReady] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState("");
+  const [history, setHistory] = useState<ReportHistory[]>([]);
+  const [data, setData] = useState({
+    quotes: [] as AnyRecord[],
+    orders: [] as AnyRecord[],
+    agenda: [] as AnyRecord[],
+    finance: [] as AnyRecord[],
+    clients: [] as AnyRecord[],
+    goals: [] as AnyRecord[]
+  });
+
+  function refreshData() {
+    setData({
+      quotes: readArray(STORAGE.quotes),
+      orders: readArray(STORAGE.orders),
+      agenda: readArray(STORAGE.agenda),
+      finance: readArray(STORAGE.finance),
+      clients: readArray(STORAGE.clients),
+      goals: readArray(STORAGE.goals)
+    });
+
+    setHistory(readArray(STORAGE.reports) as ReportHistory[]);
+    setUpdatedAt(new Date().toLocaleString("pt-BR"));
+  }
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("volt_relatorios_premium_v1");
-      if (saved) {
-        const parsed = JSON.parse(saved) as ReportHistory[];
-        if (Array.isArray(parsed)) setGenerated(parsed);
-      }
-    } catch {
-      setGenerated(history);
-    } finally {
-      setStorageReady(true);
-    }
+    refreshData();
+
+    window.addEventListener("storage", refreshData);
+    window.addEventListener("volt:ordem-criada", refreshData);
+    window.addEventListener("volt:financeiro-lancamento-criado", refreshData);
+    window.addEventListener("volt:agenda-compromisso-criado", refreshData);
+    window.addEventListener("volt:ordem-atualizada-por-agenda", refreshData);
+    window.addEventListener("volt:ordem-pagamento-atualizado", refreshData);
+
+    return () => {
+      window.removeEventListener("storage", refreshData);
+      window.removeEventListener("volt:ordem-criada", refreshData);
+      window.removeEventListener("volt:financeiro-lancamento-criado", refreshData);
+      window.removeEventListener("volt:agenda-compromisso-criado", refreshData);
+      window.removeEventListener("volt:ordem-atualizada-por-agenda", refreshData);
+      window.removeEventListener("volt:ordem-pagamento-atualizado", refreshData);
+    };
   }, []);
 
-  useEffect(() => {
-    if (!storageReady) return;
-    localStorage.setItem("volt_relatorios_premium_v1", JSON.stringify(generated));
-  }, [storageReady, generated]);
+  const reportData = useMemo(() => calculateReportData(data), [data]);
 
-  function removeLastReport() {
-    if (!window.confirm("Excluir o relatório mais recente do histórico?")) return;
-    setGenerated((current) => current.slice(1));
-  }
-
-
-  const filteredModels = useMemo(() => {
-    return models.filter((model) => {
-      const text = `${model.name} ${model.type} ${model.description} ${model.modules.join(" ")}`.toLowerCase();
-      const matchesSearch = text.includes(search.toLowerCase());
-      const matchesType = typeFilter === "Todos" || model.type === typeFilter;
-      return matchesSearch && matchesType;
-    });
-  }, [search, typeFilter]);
-
-  const stats = useMemo(() => {
-    const revenue = monthly[monthly.length - 1].receita;
-    const expense = monthly[monthly.length - 1].despesa;
-    const profit = monthly[monthly.length - 1].lucro;
-    const margin = Math.round((profit / revenue) * 100);
-    const os = monthly[monthly.length - 1].os;
-    const quotes = monthly[monthly.length - 1].cotacoes;
-    return {
-      totalReports: generated.length,
-      os,
-      quotes,
-      revenue,
-      expense,
-      profit,
-      margin,
-      clients: 38,
-      servicesDone: 14,
-      servicesPending: 6,
-      materialCost: 2860,
-      quoteApproval: 67,
-      osConclusion: 78,
-      lateRate: 8,
-      goal: 74
-    };
-  }, [generated]);
-
-  function generateReport(model: ReportModel) {
+  function registerHistory(kind: ReportKind, status: "Gerado" | "Erro") {
     const next: ReportHistory = {
-      id: `REL-${String(generated.length + 1).padStart(3, "0")}`,
-      name: model.name,
-      type: model.type,
-      period: periodFilter,
-      generatedBy: "Guilherme",
-      date: new Date().toISOString().slice(0, 10),
+      id: `REL-${String(Date.now()).slice(-6)}`,
+      kind,
+      title: `Relatório ${kind}`,
+      date: new Date().toLocaleString("pt-BR"),
       format: "PDF",
-      status: "Gerado"
+      status
     };
 
-    setGenerated((current) => [next, ...current]);
-    setSelected(model);
-    setModalOpen(true);
+    const updatedHistory = [next, ...history].slice(0, 20);
+    setHistory(updatedHistory);
+    saveArray(STORAGE.reports, updatedHistory);
   }
 
-  function exportCsv() {
-    const header = ["ID", "Nome", "Tipo", "Período", "Gerado por", "Data", "Formato", "Status"];
-    const rows = generated.map((item) => [item.id, item.name, item.type, item.period, item.generatedBy, item.date, item.format, item.status]);
-    const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";")).join("\n");
+  function generateReport(kind: ReportKind) {
+    try {
+      const report = window.open("", "_blank", "width=1200,height=900");
+
+      if (!report) {
+        alert("O navegador bloqueou a janela do relatório. Permita pop-ups para gerar o PDF.");
+        registerHistory(kind, "Erro");
+        return;
+      }
+
+      report.document.open();
+      report.document.write(makeReportHtml(kind, reportData));
+      report.document.close();
+
+      registerHistory(kind, "Gerado");
+
+      setTimeout(() => {
+        report.focus();
+        report.print();
+      }, 500);
+    } catch {
+      registerHistory(kind, "Erro");
+      alert("Não foi possível gerar o relatório agora.");
+    }
+  }
+
+  function exportReportCsv() {
+    const rows = [
+      ["Indicador", "Valor"],
+      ["Receita recebida", reportData.revenueReceived],
+      ["Receita em aberto", reportData.revenueOpen],
+      ["Despesas", reportData.expenses],
+      ["Lucro parcial", reportData.profit],
+      ["Vencidos", reportData.overdue],
+      ["Clientes", reportData.clients.length],
+      ["Orçamentos", reportData.quotes.length],
+      ["OS", reportData.orders.length],
+      ["Compromissos", reportData.agenda.length],
+      ["Financeiro", reportData.finance.length]
+    ];
+
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+
     link.href = url;
-    link.download = "relatorios-volt.csv";
+    link.download = "relatorio-geral-volt.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
 
-  const currentType =
-    activeTab === "Relatórios Executivos" ? "Executivo" :
-    activeTab === "Relatórios Financeiros" ? "Financeiro" :
-    activeTab === "Relatórios Operacionais" ? "Operacional" :
-    activeTab === "Relatórios Técnicos" ? "Técnico" :
-    activeTab === "Relatórios de Clientes" ? "Clientes" :
-    activeTab === "Relatórios de Materiais" ? "Materiais" :
-    null;
-
-  const tabModels = currentType ? filteredModels.filter((model) => model.type === currentType) : filteredModels;
+  const tabs = ["Visão Geral", "Modelos", "Histórico", "Alertas", "Exportações"];
 
   return (
     <AppShell>
@@ -514,66 +691,31 @@ export default function RelatoriosPage() {
           <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-volt-yellow/20 blur-[130px]" />
           <div className="relative z-10 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Central de BI</p>
-              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Relatórios</h1>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">BI Volt</p>
+              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Relatórios integrados</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-                Relatórios gerenciais, técnicos, financeiros, operacionais e comerciais com filtros, gráficos, histórico, modelos prontos e PDF executivo.
+                Relatórios executivos com dados reais de orçamentos, assinaturas, ordens de serviço, agenda, financeiro, clientes e metas.
               </p>
+              <p className="mt-2 text-xs font-bold text-zinc-600">Última atualização: {updatedAt || "carregando..."}</p>
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
-              <button onClick={() => setActiveTab("Relatórios Personalizados")} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Novo relatório</button>
-              <button onClick={() => generateReport(models[0])} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório executivo</button>
-              <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
-              <button onClick={removeLastReport} className="btn-ghost inline-flex items-center justify-center gap-2">Excluir último</button>
-              <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Gerar PDF</button>
+              <button onClick={refreshData} className="btn-primary inline-flex items-center justify-center gap-2"><RefreshCcw size={17} /> Atualizar dados</button>
+              <button onClick={() => generateReport("Executivo")} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> PDF executivo</button>
+              <button onClick={exportReportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> CSV geral</button>
             </div>
           </div>
-        </section>
-
-        <section className="rounded-[2rem] border border-white/10 bg-white/[.025] p-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[.7fr_.7fr_1.4fr]">
-            <select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-              {["Hoje", "Semana atual", "Mês atual", "Mês anterior", "Trimestre", "Semestre", "Ano atual", "Personalizado"].map((period) => <option key={period}>{period}</option>)}
-            </select>
-            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-              {["Todos", "Executivo", "Financeiro", "Operacional", "Técnico", "Clientes", "Materiais", "Personalizado"].map((type) => <option key={type}>{type}</option>)}
-            </select>
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
-              <Search size={17} className="text-volt-yellow" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar relatório, cliente, OS, cotação, serviço ou observação..." className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-600" />
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
-          {[
-            ["Relatórios", stats.totalReports, FileText, "text-volt-yellow", "gerados"],
-            ["OS período", stats.os, ClipboardCheck, "text-blue-300", "mês"],
-            ["Cotações", stats.quotes, FileText, "text-purple-300", "mês"],
-            ["Faturamento", currency(stats.revenue), Wallet, "text-volt-yellow", "+18%"],
-            ["Despesas", currency(stats.expense), AlertTriangle, "text-red-300", "+7%"],
-            ["Lucro", currency(stats.profit), TrendingUp, "text-volt-ok", `${stats.margin}%`],
-            ["Clientes", stats.clients, Users, "text-volt-ok", "ativos"],
-            ["Meta", `${stats.goal}%`, Target, "text-volt-yellow", "mensal"]
-          ].map(([label, value, Icon, color, note]) => {
-            const IconComp = Icon as typeof FileText;
-            return (
-              <article key={String(label)} className="card-premium rounded-3xl p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <IconComp className={String(color)} size={22} />
-                  <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-black text-zinc-400">{String(note)}</span>
-                </div>
-                <p className={`text-xl font-black ${String(color)}`}>{String(value)}</p>
-                <p className="mt-1 text-xs leading-5 text-zinc-500">{String(label)}</p>
-              </article>
-            );
-          })}
         </section>
 
         <section className="volt-scroll flex gap-2 overflow-x-auto rounded-[2rem] border border-white/10 bg-white/[.025] p-2">
           {tabs.map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-black transition ${activeTab === tab ? "bg-volt-yellow text-black shadow-glow" : "text-zinc-400 hover:bg-white/10 hover:text-white"}`}>
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-black transition ${
+                activeTab === tab ? "bg-volt-yellow text-black shadow-glow" : "text-zinc-400 hover:bg-white/10 hover:text-white"
+              }`}
+            >
               {tab}
             </button>
           ))}
@@ -581,244 +723,206 @@ export default function RelatoriosPage() {
 
         {activeTab === "Visão Geral" && (
           <>
-            <section className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
-              <ChartCard title="Evolução mensal" subtitle="Receita, despesa e lucro ao longo do tempo." icon={<LineChart size={25} />}>
-                <MainLineChart />
-              </ChartCard>
-
-              <ChartCard title="Ranking de clientes" subtitle="Maiores clientes por faturamento no período." icon={<BarChart3 size={25} />}>
-                <RankingBars />
-              </ChartCard>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard label="Receita recebida" value={currency(reportData.revenueReceived)} note={`${currency(reportData.revenueOpen)} em aberto`} icon={Wallet} tone="text-volt-ok" />
+              <KpiCard label="Lucro parcial" value={currency(reportData.profit)} note={`${currency(reportData.expenses)} em despesas/contas`} icon={TrendingUp} tone={reportData.profit >= 0 ? "text-volt-yellow" : "text-red-300"} />
+              <KpiCard label="OS abertas" value={String(reportData.ordersOpen)} note={`${reportData.ordersProgress} em andamento • ${reportData.ordersFinished} finalizadas`} icon={ClipboardCheck} tone="text-blue-300" />
+              <KpiCard label="Meta mensal" value={percent(reportData.monthlyGoalPercent)} note={`${currency(reportData.monthlyActual)} de ${currency(reportData.monthlyTarget)}`} icon={Target} tone="text-volt-yellow" />
             </section>
 
-            <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
-              <ChartCard title="Composição do faturamento" subtitle="Participação dos serviços no resultado." icon={<PieChart size={25} />}>
-                <DonutComposition />
-              </ChartCard>
-
-              <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Últimos relatórios</p>
-                <div className="mt-5 space-y-3">
-                  {generated.slice(0, 5).map((report) => (
-                    <div key={report.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-4">
-                      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-                        <div>
-                          <div className="mb-2 flex flex-wrap gap-2">
-                            <Badge className={typeColors[report.type]}>{report.type}</Badge>
-                            <Badge className={statusColors[report.status]}>{report.status}</Badge>
-                          </div>
-                          <p className="font-black">{report.name}</p>
-                          <p className="mt-1 text-sm text-zinc-500">{report.period} • {report.date}</p>
-                        </div>
-                        <button className="text-sm font-black text-volt-yellow">Abrir</button>
-                      </div>
+            <section className="grid gap-5 xl:grid-cols-[1fr_.9fr]">
+              <Panel title="Resumo executivo" subtitle="Leitura do sistema" icon={<Gauge size={25} />}>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    ["Clientes", reportData.clients.length],
+                    ["Orçamentos", reportData.quotes.length],
+                    ["Assinaturas", reportData.signedQuotes],
+                    ["OS", reportData.orders.length],
+                    ["Agenda", reportData.agenda.length],
+                    ["Financeiro", reportData.finance.length],
+                    ["Vencidos", currency(reportData.overdue)],
+                    ["Em negociação", currency(reportData.quoteValueOpen)]
+                  ].map(([label, value]) => (
+                    <div key={label as string} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                      <p className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">{label as string}</p>
+                      <p className="mt-2 text-2xl font-black text-volt-yellow">{value as string}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-            </section>
 
-            <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
-              <ChartCard title="Comparação operacional" subtitle="Cotações emitidas x ordens de serviço concluídas." icon={<BarChart3 size={25} />}>
-                <ColumnCompare />
-              </ChartCard>
+                <div className="mt-5 rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4 text-sm leading-7 text-zinc-300">
+                  O sistema está consolidando dados de {reportData.clients.length} cliente(s), {reportData.quotes.length} orçamento(s), {reportData.orders.length} OS, {reportData.agenda.length} compromisso(s) e {reportData.finance.length} lançamento(s) financeiro(s).
+                </div>
+              </Panel>
 
-              <ChartCard title="Fluxo de caixa" subtitle="Cascata de saldo inicial, receitas, despesas, materiais e saldo final." icon={<Gauge size={25} />}>
-                <CashWaterfall />
-              </ChartCard>
+              <Panel title="Meta mensal" subtitle="Faturamento" icon={<Target size={25} />}>
+                <p className="text-5xl font-black text-volt-yellow">{percent(reportData.monthlyGoalPercent)}</p>
+                <p className="mt-2 text-sm text-zinc-500">{currency(reportData.monthlyActual)} de {currency(reportData.monthlyTarget)}</p>
+                <div className="mt-5">
+                  <ProgressBar value={reportData.monthlyGoalPercent} />
+                </div>
+
+                <div className="mt-5 grid gap-3">
+                  {[
+                    ["Recebido", currency(reportData.revenueReceived), "text-volt-ok"],
+                    ["Em aberto", currency(reportData.revenueOpen), "text-volt-yellow"],
+                    ["Vencido", currency(reportData.overdue), "text-red-300"]
+                  ].map(([label, value, color]) => (
+                    <div key={label} className="flex justify-between rounded-2xl border border-white/10 bg-black/35 p-4 text-sm">
+                      <span className="text-zinc-500">{label}</span>
+                      <strong className={color}>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
             </section>
           </>
         )}
 
-        {["Relatórios Executivos", "Relatórios Financeiros", "Relatórios Operacionais", "Relatórios Técnicos", "Relatórios de Clientes", "Relatórios de Materiais"].includes(activeTab) && (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {tabModels.map((model) => <ReportCard key={model.id} model={model} onGenerate={generateReport} />)}
-          </section>
-        )}
+        {activeTab === "Modelos" && (
+          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {reportModels.map((model) => {
+              const Icon = model.icon;
 
-        {activeTab === "Relatórios Personalizados" && (
-          <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
-            <div className="card-premium rounded-[2rem] p-5 md:p-6">
-              <div className="mb-6 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Construtor de relatório</p>
-                  <h2 className="mt-1 text-2xl font-black">Monte um relatório personalizado</h2>
-                </div>
-                <Settings2 className="text-volt-yellow" size={28} />
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                {[
-                  "Nome do relatório",
-                  "Módulo base",
-                  "Período",
-                  "Cliente",
-                  "Técnico",
-                  "Status",
-                  "Centro de custo",
-                  "Colunas exibidas",
-                  "Gráficos incluídos",
-                  "Indicadores incluídos",
-                  "Agrupamento",
-                  "Ordenação"
-                ].map((field) => (
-                  <div key={field} className="rounded-2xl border border-white/10 bg-black/35 p-4">
-                    <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{field}</p>
-                    <p className="mt-2 text-sm font-bold text-zinc-300">Configuração preparada</p>
+              return (
+                <article key={model.kind} className="card-premium rounded-[2rem] p-5">
+                  <div className="mb-5 flex items-start justify-between gap-4">
+                    <div className="grid h-14 w-14 place-items-center rounded-2xl bg-volt-yellow text-black">
+                      <Icon size={26} />
+                    </div>
+                    <Badge className="bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25">{model.kind}</Badge>
                   </div>
-                ))}
-              </div>
 
-              <button onClick={() => generateReport({
-                id: "MOD-CUSTOM",
-                name: "Relatório Personalizado",
-                type: "Personalizado",
-                description: "Relatório montado pelo usuário com filtros, colunas, gráficos e indicadores escolhidos.",
-                modules: ["Personalizado"],
-                indicators: ["Selecionados"],
-                charts: ["Selecionados"],
-                tables: ["Selecionadas"],
-                status: "Gerado"
-              })} className="btn-primary mt-6 inline-flex items-center gap-2">
-                <FileText size={17} /> Gerar relatório personalizado
-              </button>
-            </div>
+                  <h3 className="text-2xl font-black">{model.title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-zinc-400">{model.description}</p>
 
-            <div className="space-y-5">
-              <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Módulos disponíveis</p>
-                <div className="mt-5 grid gap-3">
-                  {["Clientes", "Agenda", "Ordens de serviço", "Cotações", "Materiais", "Financeiro", "Centro de custo", "Técnicos", "Fornecedores"].map((module) => (
-                    <div key={module} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3">
-                      <CheckCircle2 className="text-volt-yellow" size={18} />
-                      <span className="text-sm font-bold text-zinc-300">{module}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {model.modules.map((module) => (
+                      <span key={module} className="rounded-full border border-white/10 bg-white/[.035] px-3 py-2 text-xs font-bold text-zinc-400">{module}</span>
+                    ))}
+                  </div>
 
-              <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Análises automáticas</p>
-                <div className="mt-5 space-y-3">
-                  {["Receita cresceu em relação ao mês anterior.", "Despesa de materiais precisa de atenção.", "Cotações vencidas precisam de follow-up.", "Clientes inadimplentes devem ser cobrados.", "Estoque crítico deve ser reposto."].map((alert) => (
-                    <div key={alert} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3">
-                      <AlertTriangle className="shrink-0 text-volt-yellow" size={18} />
-                      <p className="text-sm leading-6 text-zinc-300">{alert}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+                  <button onClick={() => generateReport(model.kind)} className="btn-primary mt-6 w-full">Gerar PDF</button>
+                </article>
+              );
+            })}
           </section>
         )}
 
-        {activeTab === "Histórico de Relatórios" && (
+        {activeTab === "Histórico" && (
           <section className="card-premium rounded-[2rem] p-5 md:p-6">
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Histórico</p>
                 <h2 className="mt-1 text-2xl font-black">Relatórios gerados</h2>
               </div>
-              <Filter className="text-volt-yellow" size={26} />
+              <FileText className="text-volt-yellow" size={28} />
             </div>
 
             <div className="volt-scroll overflow-x-auto">
-              <table className="w-full min-w-[1050px] border-separate border-spacing-y-2">
+              <table className="w-full min-w-[850px] border-separate border-spacing-y-2">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-[.16em] text-zinc-600">
                     <th className="px-4 py-2">Relatório</th>
                     <th className="px-4 py-2">Tipo</th>
-                    <th className="px-4 py-2">Período</th>
-                    <th className="px-4 py-2">Gerado por</th>
-                    <th className="px-4 py-2">Data</th>
                     <th className="px-4 py-2">Formato</th>
+                    <th className="px-4 py-2">Data</th>
                     <th className="px-4 py-2">Status</th>
-                    <th className="px-4 py-2">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {generated.map((report) => (
-                    <tr key={report.id} className="bg-white/[.035] text-sm">
-                      <td className="rounded-l-2xl px-4 py-4"><p className="font-black">{report.name}</p><p className="text-xs text-zinc-500">{report.id}</p></td>
-                      <td className="px-4 py-4"><Badge className={typeColors[report.type]}>{report.type}</Badge></td>
-                      <td className="px-4 py-4">{report.period}</td>
-                      <td className="px-4 py-4">{report.generatedBy}</td>
-                      <td className="px-4 py-4">{report.date}</td>
-                      <td className="px-4 py-4 font-black text-volt-yellow">{report.format}</td>
-                      <td className="px-4 py-4"><Badge className={statusColors[report.status]}>{report.status}</Badge></td>
-                      <td className="rounded-r-2xl px-4 py-4"><button onClick={() => window.print()} className="text-xs font-black text-volt-yellow">Baixar PDF</button></td>
+                  {history.map((item) => (
+                    <tr key={item.id} className="bg-white/[.035] text-sm">
+                      <td className="rounded-l-2xl px-4 py-4 font-black">{item.title}<br /><span className="text-xs text-zinc-500">{item.id}</span></td>
+                      <td className="px-4 py-4">{item.kind}</td>
+                      <td className="px-4 py-4">{item.format}</td>
+                      <td className="px-4 py-4">{item.date}</td>
+                      <td className="rounded-r-2xl px-4 py-4"><Badge className={statusClass(item.status)}>{item.status}</Badge></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            {history.length === 0 && (
+              <div className="rounded-2xl border border-white/10 bg-white/[.035] p-5 text-sm font-bold text-zinc-400">
+                Nenhum relatório gerado ainda.
+              </div>
+            )}
           </section>
         )}
 
-        {modalOpen && selected && (
-          <div className="fixed inset-0 z-[90] grid place-items-center bg-black/75 p-4 backdrop-blur-sm">
-            <div className="volt-scroll max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
-              <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start">
-                <div>
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    <Badge className={typeColors[selected.type]}>{selected.type}</Badge>
-                    <Badge className={statusColors[selected.status]}>{selected.status}</Badge>
+        {activeTab === "Alertas" && (
+          <section className="grid gap-5 xl:grid-cols-2">
+            <Panel title="Alertas automáticos" subtitle="Atenção operacional" icon={<AlertTriangle size={25} />}>
+              <div className="space-y-3">
+                {[
+                  reportData.overdue > 0 ? `Existem ${currency(reportData.overdue)} em lançamentos vencidos.` : "Sem valores vencidos no financeiro.",
+                  reportData.quoteValueOpen > 0 ? `Existem ${currency(reportData.quoteValueOpen)} em propostas abertas para acompanhamento.` : "Sem propostas abertas relevantes.",
+                  reportData.ordersOpen > 0 ? `${reportData.ordersOpen} OS ainda abertas no sistema.` : "Nenhuma OS aberta.",
+                  reportData.appointmentsOpen > 0 ? `${reportData.appointmentsOpen} compromisso(s) aberto(s) na agenda.` : "Agenda sem compromissos abertos."
+                ].map((alert) => (
+                  <div key={alert} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                    <AlertTriangle className="shrink-0 text-volt-yellow" size={18} />
+                    <p className="text-sm leading-6 text-zinc-300">{alert}</p>
                   </div>
-                  <h2 className="text-3xl font-black">{selected.name}</h2>
-                  <p className="mt-2 text-sm text-zinc-500">{selected.id} • {periodFilter}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => window.print()} className="btn-primary inline-flex items-center gap-2"><FileText size={17} /> Gerar PDF</button>
-                  <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
-                </div>
+                ))}
               </div>
+            </Panel>
 
-              <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_.85fr]">
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
-                    <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Descrição</p>
-                    <p className="mt-2 text-sm leading-7 text-zinc-300">{selected.description}</p>
+            <Panel title="Recomendações" subtitle="Próximas ações" icon={<CheckCircle2 size={25} />}>
+              <div className="space-y-3">
+                {[
+                  "Gerar relatório executivo semanal para acompanhar crescimento.",
+                  "Conferir contas vencidas e acionar clientes com pendência.",
+                  "Atualizar CRM após novas OS e lançamentos financeiros.",
+                  "Vincular documentos ao cliente para melhorar histórico e provas de execução.",
+                  "Acompanhar funil de orçamentos assinados e convertidos em OS."
+                ].map((item) => (
+                  <div key={item} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                    <CheckCircle2 className="shrink-0 text-volt-ok" size={18} />
+                    <p className="text-sm leading-6 text-zinc-300">{item}</p>
                   </div>
-
-                  {[
-                    ["Módulos incluídos", selected.modules.join(", ")],
-                    ["Indicadores", selected.indicators.join(", ")],
-                    ["Gráficos", selected.charts.join(", ")],
-                    ["Tabelas", selected.tables.join(", ")],
-                    ["Período analisado", periodFilter],
-                    ["Responsável", "Guilherme Santana"]
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
-                      <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">{label}</p>
-                      <p className="mt-1 font-bold">{value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
-                    <p className="text-sm font-black text-volt-yellow">Estrutura do PDF</p>
-                    <div className="mt-4 space-y-2">
-                      {["Capa", "Sumário", "Resumo executivo", "Indicadores", "Gráficos", "Tabelas", "Alertas", "Recomendações"].map((item) => (
-                        <div key={item} className="flex gap-3 rounded-xl border border-white/10 bg-black/25 p-3">
-                          <CheckCircle2 className="shrink-0 text-volt-yellow" size={18} />
-                          <p className="text-sm font-bold text-zinc-300">{item}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
-                    <p className="text-sm font-black text-volt-yellow">Recomendações automáticas</p>
-                    <p className="mt-2 text-sm leading-7 text-zinc-300">
-                      Reduzir custos em centros críticos, fazer follow-up em cotações paradas, repor materiais críticos, cobrar inadimplentes e priorizar clientes recorrentes.
-                    </p>
-                  </div>
-                </div>
+                ))}
               </div>
+            </Panel>
+          </section>
+        )}
+
+        {activeTab === "Exportações" && (
+          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {[
+              ["PDF Executivo", "Relatório geral com todas as áreas.", () => generateReport("Executivo"), FileText],
+              ["PDF Financeiro", "Receitas, despesas e contas.", () => generateReport("Financeiro"), Wallet],
+              ["PDF Operacional", "OS, agenda e atendimentos.", () => generateReport("Operacional"), Wrench],
+              ["PDF Clientes", "CRM, carteira e inadimplência.", () => generateReport("Clientes"), Users],
+              ["CSV Geral", "Resumo numérico para planilha.", exportReportCsv, Download]
+            ].map(([title, description, action, Icon]) => (
+              <article key={title as string} className="card-premium rounded-[2rem] p-5">
+                <Icon className="text-volt-yellow" size={30} />
+                <h3 className="mt-5 text-2xl font-black">{title as string}</h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">{description as string}</p>
+                <button onClick={action as () => void} className="btn-primary mt-6 w-full">Gerar</button>
+              </article>
+            ))}
+          </section>
+        )}
+
+        <section className="rounded-[2rem] border border-volt-yellow/20 bg-volt-yellow/10 p-5">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Base consolidada</p>
+              <p className="mt-2 text-sm leading-7 text-zinc-300">
+                {reportData.clients.length} clientes • {reportData.quotes.length} orçamentos • {reportData.orders.length} OS • {reportData.agenda.length} compromissos • {reportData.finance.length} lançamentos.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/dashboard" className="btn-ghost">Dashboard</Link>
+              <Link href="/financeiro" className="btn-ghost">Financeiro</Link>
+              <Link href="/clientes" className="btn-ghost">Clientes</Link>
             </div>
           </div>
-        )}
+        </section>
       </div>
     </AppShell>
   );
