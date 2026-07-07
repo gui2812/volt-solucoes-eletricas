@@ -666,110 +666,102 @@ export default function CotacoesPage() {
   }
 
   async function openQuotePdf(quote: Quote) {
-    let pdfQuote = quote;
+    try {
+      let pdfQuote = quote;
+      const token = quote.signatureToken || extractSignatureToken(quote.signatureUrl);
 
-    if (quote.signatureStatus === "Enviada" || quote.signatureToken || quote.signatureUrl) {
-      try {
-        const result = await checkRemoteSignatureStatus(quote.id);
+      const result = token
+        ? await checkRemoteSignatureByToken(token)
+        : await checkRemoteSignatureStatus(quote.id);
 
-        if (result.found) {
-          const remoteStatus: RemoteSignatureStatus =
-            result.status === "signed"
-              ? "Assinada"
-              : result.status === "expired"
-                ? "Expirada"
-                : result.status === "cancelled"
-                  ? "Cancelada"
-                  : "Enviada";
-
-          const clientSignature = result.clientSignature
-            ? {
-                signerName: result.clientSignature.signerName || quote.contact || quote.client || "Cliente",
-                mode: result.clientSignature.mode || "Assinatura livre",
-                signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || todayIso(),
-                signatureDataUrl: result.clientSignature.signatureDataUrl || ""
-              } as SignatureData
-            : quote.clientSignature;
-
-          const newStatus: QuoteStatus =
-            result.status === "signed" && !["Convertida em OS", "Recusada"].includes(quote.status)
-              ? "Aprovada"
-              : quote.status;
-
-          pdfQuote = {
-            ...quote,
-            status: newStatus,
-            signatureStatus: remoteStatus,
-            signedAt: result.signedAt || quote.signedAt,
-            clientSignature
-          };
-
-          setQuotes((current) => current.map((item) => item.id === quote.id ? { ...item, ...pdfQuote } : item));
-          setSelected((current) => current?.id === quote.id ? { ...current, ...pdfQuote } : current);
-        }
-      } catch {
-        // Se a verificação remota falhar, o PDF ainda é gerado com os dados locais.
+      if (!result.found || result.status !== "signed" || !result.clientSignature) {
+        alert("Este orçamento ainda não tem assinatura confirmada. Gere o PDF para assinatura ou envie o link, peça para o cliente assinar e depois clique em Verificar assinatura.");
+        return;
       }
+
+      const clientSignature = {
+        signerName: result.clientSignature.signerName || quote.contact || quote.client || "Cliente",
+        mode: result.clientSignature.mode || "Assinatura livre",
+        signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || todayIso(),
+        signatureDataUrl: result.clientSignature.signatureDataUrl || "",
+        signatureStyle: result.clientSignature.signatureStyle || "Clássica"
+      } as SignatureData;
+
+      pdfQuote = {
+        ...quote,
+        status: "Aprovada",
+        signatureStatus: "Assinada",
+        signatureToken: result.token || quote.signatureToken,
+        signatureUrl: result.signingUrl || quote.signatureUrl,
+        signedAt: result.signedAt || quote.signedAt,
+        clientSignature
+      };
+
+      setQuotes((current) => current.map((item) => item.id === quote.id ? { ...item, ...pdfQuote } : item));
+      setSelected((current) => current?.id === quote.id ? { ...current, ...pdfQuote } : current);
+
+      const discountValue = pdfQuote.items.reduce((sum, item) => {
+        const gross = item.quantity * item.unitPrice;
+        return sum + gross * (item.discount / 100);
+      }, 0);
+
+      const laborValue = pdfQuote.items
+        .filter((item) => item.kind === "Mão de obra")
+        .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+
+      openOrcamentoPdf({
+        number: pdfQuote.id,
+        date: pdfQuote.createdAt,
+        validUntil: pdfQuote.validUntil,
+        status: "Aprovada",
+
+        clientName: pdfQuote.client,
+        clientPhone: pdfQuote.phone,
+        clientAddress: pdfQuote.address,
+        service: pdfQuote.title,
+
+        items: pdfQuote.items.map((item) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+          total: item.quantity * item.unitPrice * (1 - item.discount / 100),
+          kind: item.kind
+        })),
+
+        laborValue,
+        discountValue,
+
+        paymentCondition: pdfQuote.payment,
+        executionDeadline: pdfQuote.deadline,
+        warranty: pdfQuote.warranty,
+
+        technicalNotes: [
+          "Orçamento aprovado por assinatura digital do cliente.",
+          "A assinatura digital foi registrada pelo link público de aprovação.",
+          "A execução será iniciada após alinhamento de agenda.",
+          pdfQuote.notes
+        ].filter(Boolean),
+
+        responsibleName: pdfQuote.responsible || "Guilherme Santana",
+        responsibleRole: "Responsável técnico",
+        responsibleDocument: "Volt Soluções Elétricas",
+
+        responsibleSignature: (pdfQuote.responsibleSignature ?? makeSignature(pdfQuote.responsible || "Guilherme Santana", "Rubrica predefinida")) as any,
+        clientSignature: clientSignature as any,
+
+        companyPhone: "(11) 98878-3401",
+        companyEmail: "solucoeseletricasvolt@gmail.com",
+        companyCity: "São Paulo / SP",
+        companyWebsite: "volt-solucoes-eletricas.vercel.app",
+        logoSrc: "/img/logo.png",
+
+        signingUrl: undefined,
+        documentPurpose: "final"
+      } as any);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao gerar PDF final assinado.");
     }
-
-    const discountValue = pdfQuote.items.reduce((sum, item) => {
-      const gross = item.quantity * item.unitPrice;
-      return sum + gross * (item.discount / 100);
-    }, 0);
-
-    const laborValue = pdfQuote.items
-      .filter((item) => item.kind === "Mão de obra")
-      .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-
-    openOrcamentoPdf({
-      number: pdfQuote.id,
-      date: pdfQuote.createdAt,
-      validUntil: pdfQuote.validUntil,
-      status: pdfQuote.status,
-
-      clientName: pdfQuote.client,
-      clientPhone: pdfQuote.phone,
-      clientAddress: pdfQuote.address,
-      service: pdfQuote.title,
-
-      items: pdfQuote.items.map((item) => ({
-        description: item.description,
-        quantity: item.quantity,
-        unit: item.unit,
-        unitPrice: item.unitPrice,
-        total: item.quantity * item.unitPrice * (1 - item.discount / 100),
-        kind: item.kind
-      })),
-
-      laborValue,
-      discountValue,
-
-      paymentCondition: pdfQuote.payment,
-      executionDeadline: pdfQuote.deadline,
-      warranty: pdfQuote.warranty,
-
-      technicalNotes: [
-        "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
-        "Os valores podem sofrer alteração caso haja mudança de escopo, local de instalação ou necessidade de materiais adicionais.",
-        "A execução será iniciada após aprovação do orçamento e alinhamento de agenda.",
-        pdfQuote.notes
-      ].filter(Boolean),
-
-      responsibleName: pdfQuote.responsible || "Guilherme Santana",
-      responsibleRole: "Responsável técnico",
-      responsibleDocument: "Volt Soluções Elétricas",
-
-      responsibleSignature: (pdfQuote.responsibleSignature ?? makeSignature(pdfQuote.responsible || "Guilherme Santana", "Rubrica predefinida")) as any,
-      clientSignature: (pdfQuote.clientSignature ?? makeSignature(pdfQuote.client || pdfQuote.contact || "", "Pendente")) as any,
-
-      companyPhone: "(11) 98878-3401",
-      companyEmail: "solucoeseletricasvolt@gmail.com",
-      companyCity: "São Paulo / SP",
-      companyWebsite: "volt-solucoes-eletricas.vercel.app",
-      logoSrc: "/img/logo.png",
-      signingUrl: pdfQuote.signatureUrl,
-      documentPurpose: "final"
-    } as any);
   }
 
   async function sendToRemoteSignature(quote: Quote) {
