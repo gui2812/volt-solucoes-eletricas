@@ -540,6 +540,119 @@ export default function CotacoesPage() {
     return `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
   }
 
+  async function openApprovalPdf(quote: Quote) {
+    try {
+      let approvalQuote = quote;
+      let signingUrl = quote.signatureUrl;
+
+      if (!signingUrl) {
+        const result = await createRemoteSignatureLink({
+          id: quote.id,
+          title: quote.title,
+          client: quote.client,
+          contact: quote.contact,
+          phone: quote.phone,
+          email: quote.email,
+          address: quote.address,
+          createdAt: quote.createdAt,
+          validUntil: quote.validUntil,
+          payment: quote.payment,
+          warranty: quote.warranty,
+          deadline: quote.deadline,
+          status: quote.status,
+          responsible: quote.responsible,
+          notes: quote.notes,
+          items: quote.items
+        });
+
+        signingUrl = result.signingUrl;
+
+        approvalQuote = {
+          ...quote,
+          signatureToken: result.token,
+          signatureUrl: result.signingUrl,
+          signatureStatus: "Enviada",
+          status: quote.status === "Rascunho" ? "Enviada" : quote.status,
+          history: [
+            ...quote.history,
+            `PDF para assinatura gerado em ${new Date().toLocaleDateString("pt-BR")}`
+          ]
+        };
+
+        setQuotes((current) => current.map((item) => item.id === quote.id ? approvalQuote : item));
+        setSelected((current) => current?.id === quote.id ? approvalQuote : current);
+
+        try {
+          await navigator.clipboard.writeText(result.signingUrl);
+        } catch {
+          // Se o navegador bloquear a cópia, o PDF ainda será gerado com QR Code.
+        }
+      }
+
+      const discountValue = approvalQuote.items.reduce((sum, item) => {
+        const gross = item.quantity * item.unitPrice;
+        return sum + gross * (item.discount / 100);
+      }, 0);
+
+      const laborValue = approvalQuote.items
+        .filter((item) => item.kind === "Mão de obra")
+        .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+
+      openOrcamentoPdf({
+        number: approvalQuote.id,
+        date: approvalQuote.createdAt,
+        validUntil: approvalQuote.validUntil,
+        status: approvalQuote.status,
+
+        clientName: approvalQuote.client,
+        clientPhone: approvalQuote.phone,
+        clientAddress: approvalQuote.address,
+        service: approvalQuote.title,
+
+        items: approvalQuote.items.map((item) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+          total: item.quantity * item.unitPrice * (1 - item.discount / 100),
+          kind: item.kind
+        })),
+
+        laborValue,
+        discountValue,
+
+        paymentCondition: approvalQuote.payment,
+        executionDeadline: approvalQuote.deadline,
+        warranty: approvalQuote.warranty,
+
+        technicalNotes: [
+          "Este documento é uma proposta para análise e aprovação digital.",
+          "Para aprovar, o cliente deve acessar o link ou escanear o QR Code de assinatura.",
+          "A execução será iniciada após aprovação do orçamento e alinhamento de agenda.",
+          approvalQuote.notes
+        ].filter(Boolean),
+
+        responsibleName: approvalQuote.responsible || "Guilherme Santana",
+        responsibleRole: "Responsável técnico",
+        responsibleDocument: "Volt Soluções Elétricas",
+
+        responsibleSignature: (approvalQuote.responsibleSignature ?? makeSignature(approvalQuote.responsible || "Guilherme Santana", "Rubrica predefinida")) as any,
+        clientSignature: (approvalQuote.clientSignature ?? makeSignature(approvalQuote.client || approvalQuote.contact || "", "Pendente")) as any,
+
+        companyPhone: "(11) 98878-3401",
+        companyEmail: "solucoeseletricasvolt@gmail.com",
+        companyCity: "São Paulo / SP",
+        companyWebsite: "volt-solucoes-eletricas.vercel.app",
+        logoSrc: "/img/logo.png",
+
+        signingUrl,
+        documentPurpose: "approval"
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao gerar PDF para assinatura.");
+    }
+  }
+
   async function openQuotePdf(quote: Quote) {
     let pdfQuote = quote;
 
@@ -641,7 +754,9 @@ export default function CotacoesPage() {
       companyEmail: "solucoeseletricasvolt@gmail.com",
       companyCity: "São Paulo / SP",
       companyWebsite: "volt-solucoes-eletricas.vercel.app",
-      logoSrc: "/img/logo.png"
+      logoSrc: "/img/logo.png",
+      signingUrl: pdfQuote.signatureUrl,
+      documentPurpose: "final"
     });
   }
 
