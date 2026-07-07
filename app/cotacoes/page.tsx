@@ -1149,7 +1149,66 @@ export default function CotacoesPage() {
   }
 
   function convertQuoteToOs(id: string) {
+    const quoteToConvert = quotes.find((item) => item.id === id);
+
+    if (!quoteToConvert) return;
+
+    const alreadyConverted = quoteToConvert.os && quoteToConvert.os !== "Sem OS";
+
+    if (alreadyConverted && quoteToConvert.status === "Convertida em OS") {
+      alert(`Este orçamento já foi convertido em ${quoteToConvert.os}.`);
+      return;
+    }
+
     const osNumber = `OS-${String(Date.now()).slice(-5)}`;
+    const materials = quoteToConvert.items
+      .filter((item) => item.kind === "Material")
+      .map((item) => `${item.description} - ${item.quantity} ${item.unit}`);
+
+    const serviceOrder = {
+      id: osNumber,
+      title: quoteToConvert.title || quoteToConvert.serviceType || "Serviço convertido de orçamento",
+      client: quoteToConvert.client || "Cliente não informado",
+      phone: quoteToConvert.phone || "",
+      address: quoteToConvert.address || "",
+      type: quoteToConvert.serviceType || "Serviço elétrico",
+      status: "Orçamento",
+      priority: quoteToConvert.priority,
+      date: new Date().toISOString().slice(0, 10),
+      technician: quoteToConvert.responsible || "Guilherme Santana",
+      value: quoteTotal(quoteToConvert),
+      paid: 0,
+      materialsCost: quoteCost(quoteToConvert),
+      quote: quoteToConvert.id,
+      checklist: [
+        { item: "Confirmar escopo aprovado", done: true },
+        { item: "Agendar execução com o cliente", done: false },
+        { item: "Separar materiais", done: false },
+        { item: "Executar serviço", done: false },
+        { item: "Testar funcionamento", done: false },
+        { item: "Registrar fotos e finalizar OS", done: false }
+      ],
+      materials: materials.length ? materials : ["Materiais a definir"],
+      notes: [
+        `OS gerada automaticamente a partir do orçamento ${quoteToConvert.id}.`,
+        quoteToConvert.notes
+      ].filter(Boolean).join("\n")
+    };
+
+    try {
+      const saved = localStorage.getItem("volt_ordens_premium_v1");
+      const parsed = saved ? JSON.parse(saved) : [];
+      const currentOrders = Array.isArray(parsed) ? parsed : [];
+      const exists = currentOrders.some((order: { id?: string; quote?: string }) => order.id === osNumber || order.quote === quoteToConvert.id);
+
+      if (!exists) {
+        localStorage.setItem("volt_ordens_premium_v1", JSON.stringify([serviceOrder, ...currentOrders]));
+      }
+
+      window.dispatchEvent(new CustomEvent("volt:ordem-criada", { detail: serviceOrder }));
+    } catch {
+      // Mesmo se o localStorage falhar, o orçamento ainda será marcado como convertido.
+    }
 
     setQuotes((current) => current.map((item) => {
       if (item.id !== id) return item;
@@ -1164,6 +1223,8 @@ export default function CotacoesPage() {
       setSelected(updated);
       return updated;
     }));
+
+    alert(`Orçamento convertido em ${osNumber}. A OS foi criada na tela de Ordens de Serviço.`);
   }
 
   const filtered = useMemo(() => {
