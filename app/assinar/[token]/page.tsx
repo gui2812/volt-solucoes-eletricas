@@ -67,12 +67,13 @@ function formatDate(value?: string) {
   if (!value) return "-";
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-
   return date.toLocaleDateString("pt-BR");
 }
 
 function itemTotal(item: QuoteItem) {
-  return typeof item.total === "number" ? item.total : Number(item.quantity || 0) * Number(item.unitPrice || 0);
+  return typeof item.total === "number"
+    ? item.total
+    : Number(item.quantity || 0) * Number(item.unitPrice || 0);
 }
 
 export default function AssinarOrcamentoPage() {
@@ -295,7 +296,7 @@ export default function AssinarOrcamentoPage() {
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Volt Soluções Elétricas</p>
                 <h1 className="mt-1 text-3xl font-black md:text-5xl">Análise e assinatura do orçamento</h1>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  Esta página é pública e segura. O cliente não precisa acessar o sistema da Volt.
+                  Esta página é pública. O cliente não precisa acessar o sistema da Volt.
                 </p>
               </div>
             </div>
