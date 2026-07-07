@@ -21,6 +21,7 @@ import {
   Wrench,
   Zap
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -58,7 +59,7 @@ const reportModels: {
   title: string;
   description: string;
   modules: string[];
-  icon: typeof BarChart3;
+  icon: LucideIcon;
 }[] = [
   {
     kind: "Executivo",
@@ -213,7 +214,7 @@ function KpiCard({
   label: string;
   value: string;
   note: string;
-  icon: typeof Wallet;
+  icon: LucideIcon;
   tone?: string;
 }) {
   return (
@@ -891,18 +892,18 @@ export default function RelatoriosPage() {
 
         {activeTab === "Exportações" && (
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {[
-              ["PDF Executivo", "Relatório geral com todas as áreas.", () => generateReport("Executivo"), FileText],
-              ["PDF Financeiro", "Receitas, despesas e contas.", () => generateReport("Financeiro"), Wallet],
-              ["PDF Operacional", "OS, agenda e atendimentos.", () => generateReport("Operacional"), Wrench],
-              ["PDF Clientes", "CRM, carteira e inadimplência.", () => generateReport("Clientes"), Users],
-              ["CSV Geral", "Resumo numérico para planilha.", exportReportCsv, Download]
-            ].map(([title, description, action, Icon]) => (
-              <article key={title as string} className="card-premium rounded-[2rem] p-5">
+            {([
+              { title: "PDF Executivo", description: "Relatório geral com todas as áreas.", action: () => generateReport("Executivo"), Icon: FileText },
+              { title: "PDF Financeiro", description: "Receitas, despesas e contas.", action: () => generateReport("Financeiro"), Icon: Wallet },
+              { title: "PDF Operacional", description: "OS, agenda e atendimentos.", action: () => generateReport("Operacional"), Icon: Wrench },
+              { title: "PDF Clientes", description: "CRM, carteira e inadimplência.", action: () => generateReport("Clientes"), Icon: Users },
+              { title: "CSV Geral", description: "Resumo numérico para planilha.", action: exportReportCsv, Icon: Download }
+            ] as { title: string; description: string; action: () => void; Icon: LucideIcon }[]).map(({ title, description, action, Icon }) => (
+              <article key={title} className="card-premium rounded-[2rem] p-5">
                 <Icon className="text-volt-yellow" size={30} />
-                <h3 className="mt-5 text-2xl font-black">{title as string}</h3>
-                <p className="mt-2 text-sm leading-6 text-zinc-400">{description as string}</p>
-                <button onClick={action as () => void} className="btn-primary mt-6 w-full">Gerar</button>
+                <h3 className="mt-5 text-2xl font-black">{title}</h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">{description}</p>
+                <button onClick={action} className="btn-primary mt-6 w-full">Gerar</button>
               </article>
             ))}
           </section>
