@@ -268,6 +268,28 @@ const statusColors: Record<QuoteStatus, string> = {
   "Convertida em OS": "bg-volt-ok/15 text-volt-ok border-volt-ok/20"
 };
 
+const signatureColors: Record<RemoteSignatureStatus, string> = {
+  Pendente: "bg-white/10 text-zinc-300 border-white/10",
+  Enviada: "bg-blue-500/15 text-blue-300 border-blue-500/20",
+  Assinada: "bg-volt-ok/15 text-volt-ok border-volt-ok/20",
+  Expirada: "bg-red-500/15 text-red-300 border-red-500/20",
+  Cancelada: "bg-red-500/15 text-red-300 border-red-500/20"
+};
+
+function getSignatureStatus(quote: Quote): RemoteSignatureStatus {
+  if (quote.signatureStatus) return quote.signatureStatus;
+
+  if (quote.clientSignature && quote.clientSignature.mode !== "Pendente") {
+    return "Assinada";
+  }
+
+  if (quote.signatureToken || quote.signatureUrl) {
+    return "Enviada";
+  }
+
+  return "Pendente";
+}
+
 const priorityColors = {
   Baixa: "bg-white/10 text-zinc-300 border-white/10",
   Média: "bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25",
@@ -875,6 +897,160 @@ export default function CotacoesPage() {
     }
   }
 
+  async function resendSignatureLink(quote: Quote) {
+    try {
+      let signingUrl = quote.signatureUrl || "";
+      let token = quote.signatureToken || extractSignatureToken(quote.signatureUrl);
+
+      if (!signingUrl && token) {
+        signingUrl = `${window.location.origin}/assinar/${token}`;
+      }
+
+      if (!signingUrl) {
+        await sendToRemoteSignature(quote);
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(signingUrl);
+      } catch {
+        // Se o navegador bloquear a cópia, o WhatsApp ainda abre com o link.
+      }
+
+      const whatsapp = makeSignatureWhatsAppLink(quote.phone, signingUrl, quote.id);
+
+      let emailSent = false;
+      let emailWarning = "";
+
+      if (quote.email?.trim()) {
+        try {
+          const emailResponse = await fetch("/api/signature/email/send", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              to: quote.email,
+              clientName: quote.contact || quote.client,
+              quoteId: quote.id,
+              quoteTitle: quote.title,
+              signingUrl,
+              total: currency(quoteTotal(quote)),
+              validUntil: quote.validUntil
+            })
+          });
+
+          const emailData = await emailResponse.json();
+
+          if (!emailResponse.ok) {
+            throw new Error(emailData.error || "Erro ao reenviar e-mail de assinatura.");
+          }
+
+          emailSent = true;
+        } catch (emailError) {
+          emailWarning = emailError instanceof Error ? emailError.message : "Não foi possível reenviar o e-mail.";
+        }
+      }
+
+      const historyMessage = emailSent
+        ? `Link de assinatura reenviado por WhatsApp e e-mail em ${new Date().toLocaleDateString("pt-BR")}`
+        : `Link de assinatura reenviado por WhatsApp em ${new Date().toLocaleDateString("pt-BR")}`;
+
+      setQuotes((current) => current.map((item) => {
+        if (item.id !== quote.id) return item;
+
+        return {
+          ...item,
+          signatureToken: token || item.signatureToken,
+          signatureUrl: signingUrl || item.signatureUrl,
+          signatureStatus: "Enviada",
+          status: item.status === "Rascunho" ? "Enviada" : item.status,
+          history: [...item.history, historyMessage]
+        };
+      }));
+
+      setSelected((current) => {
+        if (!current || current.id !== quote.id) return current;
+
+        return {
+          ...current,
+          signatureToken: token || current.signatureToken,
+          signatureUrl: signingUrl || current.signatureUrl,
+          signatureStatus: "Enviada",
+          status: current.status === "Rascunho" ? "Enviada" : current.status,
+          history: [...current.history, historyMessage]
+        };
+      });
+
+      window.open(whatsapp, "_blank");
+
+      alert(
+        [
+          "Link de assinatura reenviado e copiado.",
+          emailSent ? "E-mail reenviado para o cliente." : quote.email ? `Atenção: ${emailWarning}` : "Cliente sem e-mail cadastrado. Reenviado apenas por WhatsApp."
+        ].join("\n")
+      );
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao reenviar assinatura.");
+    }
+  }
+
+  async function cancelSignatureLink(quote: Quote) {
+    try {
+      const token = quote.signatureToken || extractSignatureToken(quote.signatureUrl);
+
+      if (!token) {
+        alert("Este orçamento ainda não tem link de assinatura para cancelar.");
+        return;
+      }
+
+      if (getSignatureStatus(quote) === "Assinada") {
+        alert("Este orçamento já foi assinado. Não é recomendado cancelar uma assinatura concluída.");
+        return;
+      }
+
+      const confirmed = window.confirm("Deseja cancelar o link de assinatura deste orçamento? O cliente não conseguirá mais assinar por esse link.");
+
+      if (!confirmed) return;
+
+      const response = await fetch(`/api/signature/cancel/${encodeURIComponent(token)}`, {
+        method: "POST"
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Erro ao cancelar link de assinatura.");
+      }
+
+      const historyMessage = `Link de assinatura cancelado em ${new Date().toLocaleDateString("pt-BR")}`;
+
+      setQuotes((current) => current.map((item) => {
+        if (item.id !== quote.id) return item;
+
+        return {
+          ...item,
+          signatureStatus: "Cancelada",
+          history: [...item.history, historyMessage]
+        };
+      }));
+
+      setSelected((current) => {
+        if (!current || current.id !== quote.id) return current;
+
+        return {
+          ...current,
+          signatureStatus: "Cancelada",
+          history: [...current.history, historyMessage]
+        };
+      });
+
+      alert("Link de assinatura cancelado.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao cancelar link de assinatura.");
+    }
+  }
+
   async function checkRemoteSignature(quote: Quote) {
     try {
       const token = quote.signatureToken || extractSignatureToken(quote.signatureUrl);
@@ -1117,6 +1293,7 @@ export default function CotacoesPage() {
             ["Total", filtered.length, ClipboardCheck, "text-volt-yellow", "orçamentos"],
             ["Abertas", stats.waiting.length, Send, "text-blue-300", currency(stats.waitingValue)],
             ["Aprovadas", stats.approved.length, CheckCircle2, "text-volt-ok", currency(stats.approvedValue)],
+            ["Assinadas", filtered.filter((quote) => getSignatureStatus(quote) === "Assinada").length, CheckCircle2, "text-volt-ok", "assinatura"],
             ["Recusadas", stats.refused.length, AlertTriangle, "text-red-300", currency(stats.lostValue)],
             ["Vencidas", stats.expired.length, AlertTriangle, "text-red-300", "follow-up"],
             ["Valor orçado", currency(stats.totalQuoted), Wallet, "text-volt-yellow", "total"],
@@ -1216,6 +1393,7 @@ export default function CotacoesPage() {
                     <th className="px-4 py-2">Validade</th>
                     <th className="px-4 py-2">Responsável</th>
                     <th className="px-4 py-2">Valor</th>
+                    <th className="px-4 py-2">Assinatura</th>
                     <th className="px-4 py-2">Status</th>
                     <th className="px-4 py-2">Chance</th>
                     <th className="px-4 py-2">Ações</th>
@@ -1230,6 +1408,7 @@ export default function CotacoesPage() {
                       <td className="px-4 py-4">{quote.validUntil}</td>
                       <td className="px-4 py-4">{quote.responsible}</td>
                       <td className="px-4 py-4 font-black">{currency(quoteTotal(quote))}</td>
+                      <td className="px-4 py-4"><Badge className={signatureColors[getSignatureStatus(quote)]}>{getSignatureStatus(quote)}</Badge></td>
                       <td className="px-4 py-4"><Badge className={statusColors[quote.status]}>{quote.status}</Badge></td>
                       <td className="px-4 py-4"><div className="min-w-24"><div className="mb-1 text-xs font-black text-volt-yellow">{quote.chance}%</div><ProgressBar value={quote.chance} /></div></td>
                       <td className="rounded-r-2xl px-4 py-4"><button onClick={() => { setSelected(quote); setModalOpen(true); }} className="text-xs font-black text-volt-yellow">Detalhes</button></td>
@@ -1272,7 +1451,7 @@ export default function CotacoesPage() {
                   ["2", "Preencha cliente, serviço e endereço"],
                   ["3", "Adicione itens de serviço, material e mão de obra"],
                   ["4", "Confira total, custo, lucro e margem"],
-                  ["5", "Salve, gere PDF, envie pelo WhatsApp ou converta em OS"]
+                  ["5", "Envie para assinatura, verifique a aprovação, gere PDF final e converta em OS"]
                 ].map(([number, text]) => (
                   <div key={number} className="mt-3 flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3 text-sm">
                     <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-volt-yellow text-xs font-black text-black">{number}</span>
@@ -1308,7 +1487,10 @@ export default function CotacoesPage() {
                   <div className="space-y-3">
                     {filtered.filter((quote) => quote.status === status).map((quote) => (
                       <div key={quote.id} className="rounded-3xl border border-white/10 bg-black/35 p-4">
-                        <Badge className={statusColors[quote.status]}>{quote.status}</Badge>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge className={statusColors[quote.status]}>{quote.status}</Badge>
+                          <Badge className={signatureColors[getSignatureStatus(quote)]}>{getSignatureStatus(quote)}</Badge>
+                        </div>
                         <p className="mt-3 font-black">{quote.client}</p>
                         <p className="mt-1 text-xs text-zinc-500">{quote.title}</p>
                         <p className="mt-3 text-lg font-black text-volt-yellow">{currency(quoteTotal(quote))}</p>
@@ -1455,6 +1637,14 @@ export default function CotacoesPage() {
                   <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF final</button>
                   <button onClick={() => openApprovalPdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF para assinatura</button>
                   <button onClick={() => sendToRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><Send size={17} /> Enviar assinatura</button>
+                  {(selected.signatureUrl || selected.signatureToken) && getSignatureStatus(selected) !== "Assinada" && (
+                    <button onClick={() => resendSignatureLink(selected)} className="btn-ghost inline-flex items-center gap-2"><Send size={17} /> Reenviar assinatura</button>
+                  )}
+                  {(selected.signatureUrl || selected.signatureToken) && !["Assinada", "Cancelada"].includes(getSignatureStatus(selected)) && (
+                    <button onClick={() => cancelSignatureLink(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">
+                      Cancelar link
+                    </button>
+                  )}
                   {selected.signatureUrl && (
                     <button
                       onClick={async () => {
@@ -1491,7 +1681,7 @@ export default function CotacoesPage() {
                     ["Garantia", selected.warranty],
                     ["Prazo", selected.deadline],
                     ["OS vinculada", selected.os],
-                    ["Assinatura", selected.signatureStatus ?? "Pendente"],
+                    ["Status assinatura", getSignatureStatus(selected)],
                     ["Assinado em", selected.signedAt ? new Date(selected.signedAt).toLocaleDateString("pt-BR") : "-"],
                     ["Valor final", currency(quoteTotal(selected))],
                     ["Custo estimado", currency(quoteCost(selected))],
