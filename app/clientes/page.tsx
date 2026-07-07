@@ -25,6 +25,7 @@ import {
   Wallet,
   Zap
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 
 type ClientStatus = "Lead" | "Ativo" | "Inativo" | "Inadimplente" | "Recorrente" | "Em negociação" | "Bloqueado";
@@ -1576,20 +1577,20 @@ export default function ClientesPage() {
             </div>
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                ["Clientes", filtered.length, Users, "text-volt-yellow"],
-                ["Ativos", stats.active, CheckCircle2, "text-volt-ok"],
-                ["Faturamento", currency(stats.totalRevenue), Wallet, "text-volt-yellow"],
-                ["Inadimplentes", stats.inadimplente, AlertTriangle, "text-red-300"],
-                ["Leads", stats.leadTotal, UserPlus, "text-blue-300"],
-                ["Conversão", `${stats.conversion}%`, Target, "text-volt-yellow"],
-                ["Retenção", `${stats.retention}%`, TrendingUp, "text-volt-ok"],
-                ["Ticket", currency(stats.ticket), BarChart3, "text-volt-yellow"]
-              ].map(([label, value, Icon, color]) => (
-                <article key={label as string} className="card-premium rounded-3xl p-5">
-                  <Icon className={color as string} size={25} />
-                  <p className="mt-5 text-3xl font-black text-volt-yellow">{value as string}</p>
-                  <p className="mt-1 text-sm font-bold text-zinc-400">{label as string}</p>
+              {([
+                { label: "Clientes", value: filtered.length, Icon: Users, color: "text-volt-yellow" },
+                { label: "Ativos", value: stats.active, Icon: CheckCircle2, color: "text-volt-ok" },
+                { label: "Faturamento", value: currency(stats.totalRevenue), Icon: Wallet, color: "text-volt-yellow" },
+                { label: "Inadimplentes", value: stats.inadimplente, Icon: AlertTriangle, color: "text-red-300" },
+                { label: "Leads", value: stats.leadTotal, Icon: UserPlus, color: "text-blue-300" },
+                { label: "Conversão", value: `${stats.conversion}%`, Icon: Target, color: "text-volt-yellow" },
+                { label: "Retenção", value: `${stats.retention}%`, Icon: TrendingUp, color: "text-volt-ok" },
+                { label: "Ticket", value: currency(stats.ticket), Icon: BarChart3, color: "text-volt-yellow" }
+              ] as { label: string; value: string | number; Icon: LucideIcon; color: string }[]).map(({ label, value, Icon, color }) => (
+                <article key={label} className="card-premium rounded-3xl p-5">
+                  <Icon className={color} size={25} />
+                  <p className="mt-5 text-3xl font-black text-volt-yellow">{value}</p>
+                  <p className="mt-1 text-sm font-bold text-zinc-400">{label}</p>
                 </article>
               ))}
             </section>
