@@ -39,11 +39,14 @@ type QuoteStatus =
 
 type SignatureMode = "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
 
+type SignatureStyle = "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
+
 type SignatureData = {
   signerName: string;
   mode: SignatureMode;
   signedAt: string;
   signatureDataUrl?: string;
+  signatureStyle?: SignatureStyle;
 };
 
 type RemoteSignatureStatus = "Pendente" | "Enviada" | "Assinada" | "Expirada" | "Cancelada";
@@ -291,12 +294,13 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function makeSignature(name: string, mode: SignatureMode, signatureDataUrl?: string): SignatureData {
+function makeSignature(name: string, mode: SignatureMode, signatureDataUrl?: string, signatureStyle: SignatureStyle = "Clássica"): SignatureData {
   return {
-    signerName: name || "",
+    signerName: name,
     mode,
     signedAt: todayIso(),
-    signatureDataUrl
+    signatureDataUrl,
+    signatureStyle
   };
 }
 
@@ -703,7 +707,7 @@ export default function CotacoesPage() {
       });
 
       window.open(whatsapp, "_blank");
-      alert("Link de assinatura criado, copiado e aberto no WhatsApp do cliente.");
+      alert("Link público do orçamento criado, copiado e aberto no WhatsApp do cliente. Ele não precisa acessar o sistema.");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao gerar link de assinatura.");
     }
@@ -732,7 +736,8 @@ export default function CotacoesPage() {
             signerName: result.clientSignature.signerName || quote.contact || quote.client || "Cliente",
             mode: result.clientSignature.mode || "Assinatura livre",
             signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || todayIso(),
-            signatureDataUrl: result.clientSignature.signatureDataUrl || ""
+            signatureDataUrl: result.clientSignature.signatureDataUrl || "",
+            signatureStyle: result.clientSignature.signatureStyle || "Clássica"
           } as SignatureData
         : quote.clientSignature;
 
@@ -1434,11 +1439,11 @@ function QuoteEditorModal({
   }
 
   function signResponsiblePredefined() {
-    updateSignature("responsibleSignature", makeSignature(draft.responsible || "Guilherme Santana", "Rubrica predefinida"));
+    updateSignature("responsibleSignature", makeSignature(draft.responsible || "Guilherme Santana", "Rubrica predefinida", undefined, "Clássica"));
   }
 
   function signClientPredefined() {
-    updateSignature("clientSignature", makeSignature(draft.contact || draft.client || "Cliente", "Rubrica predefinida"));
+    updateSignature("clientSignature", makeSignature(draft.contact || draft.client || "", "Rubrica predefinida", undefined, "Clássica"));
   }
 
 
@@ -1754,6 +1759,18 @@ function SignatureEditor({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
 
+  const styles: Array<{ value: SignatureStyle; label: string; className: string }> = [
+    { value: "Clássica", label: "Clássica", className: "font-serif text-4xl italic md:text-5xl" },
+    { value: "Elegante", label: "Elegante", className: "font-serif text-5xl italic tracking-wide md:text-6xl" },
+    { value: "Moderna", label: "Moderna", className: "font-sans text-3xl font-light tracking-[.28em] uppercase md:text-4xl" },
+    { value: "Rubrica rápida", label: "Rubrica rápida", className: "font-serif text-4xl italic -skew-x-6 md:text-5xl" },
+    { value: "Formal", label: "Formal", className: "font-serif text-3xl font-bold tracking-wide md:text-4xl" }
+  ];
+
+  const currentName = value.signerName ?? "";
+  const currentStyle = value.signatureStyle ?? "Clássica";
+  const activeStyle = styles.find((item) => item.value === currentStyle) ?? styles[0];
+
   function prepareCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1825,17 +1842,40 @@ function SignatureEditor({
   function clearCanvas() {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    onChange(makeSignature(suggestedName, "Pendente"));
+    if (canvas && ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    onChange({
+      ...value,
+      mode: "Pendente",
+      signatureDataUrl: undefined
+    });
   }
 
   function saveFreeSignature() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    onChange(makeSignature(suggestedName, "Assinatura livre", canvas.toDataURL("image/png")));
+    onChange({
+      ...value,
+      signerName: currentName,
+      mode: "Assinatura livre",
+      signedAt: todayIso(),
+      signatureDataUrl: canvas.toDataURL("image/png")
+    });
+  }
+
+  function useStyle(style: SignatureStyle) {
+    onChange({
+      ...value,
+      signerName: currentName,
+      mode: "Rubrica predefinida",
+      signedAt: todayIso(),
+      signatureDataUrl: undefined,
+      signatureStyle: style
+    });
   }
 
   return (
@@ -1854,8 +1894,9 @@ function SignatureEditor({
       <div className="mt-4 rounded-2xl border border-white/10 bg-white/[.035] p-4">
         <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Nome exibido</p>
         <input
-          value={value.signerName || suggestedName}
+          value={currentName}
           onChange={(event) => onChange({ ...value, signerName: event.target.value })}
+          placeholder={suggestedName || "Digite o nome do assinante"}
           className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
         />
 
@@ -1865,8 +1906,10 @@ function SignatureEditor({
           ) : value.mode === "Rubrica predefinida" ? (
             <div className="grid h-40 place-items-center px-4 text-center">
               <div>
-                <p className="font-serif text-4xl italic leading-tight text-white md:text-5xl">{value.signerName || suggestedName}</p>
-                <p className="mt-3 text-xs font-bold text-zinc-500">Rubrica predefinida gerada pelo sistema</p>
+                <p className={`${activeStyle.className} leading-tight text-white`}>
+                  {currentName || "Digite o nome"}
+                </p>
+                <p className="mt-3 text-xs font-bold text-zinc-500">{currentStyle} • rubrica predefinida</p>
               </div>
             </div>
           ) : (
@@ -1881,9 +1924,29 @@ function SignatureEditor({
           )}
         </div>
 
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-black uppercase tracking-[.16em] text-zinc-600">Rubricas predefinidas</p>
+          <div className="grid gap-2 md:grid-cols-5">
+            {styles.map((style) => (
+              <button
+                key={style.value}
+                type="button"
+                onClick={() => useStyle(style.value)}
+                className={`rounded-2xl border px-3 py-3 text-xs font-black transition ${
+                  value.mode === "Rubrica predefinida" && currentStyle === style.value
+                    ? "border-volt-yellow bg-volt-yellow text-black"
+                    : "border-white/10 text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow"
+                }`}
+              >
+                {style.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="mt-4 grid gap-2 md:grid-cols-3">
           <button type="button" onClick={onPredefined} className="rounded-2xl border border-white/10 px-4 py-3 text-xs font-black text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow">
-            Rubrica predefinida
+            Usar padrão
           </button>
           <button type="button" onClick={saveFreeSignature} className="rounded-2xl border border-white/10 px-4 py-3 text-xs font-black text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow">
             Salvar livre
