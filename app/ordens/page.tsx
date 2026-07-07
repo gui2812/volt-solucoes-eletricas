@@ -208,6 +208,8 @@ const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
 const CONVERTED_ORDERS_QUEUE_KEY = "volt_ordens_convertidas_v1";
 const FINANCE_STORAGE_KEY = "volt_financeiro_premium_v1";
 const FINANCE_QUEUE_KEY = "volt_financeiro_lancamentos_v1";
+const AGENDA_STORAGE_KEY = "volt_agenda_premium_v1";
+const AGENDA_QUEUE_KEY = "volt_agenda_compromissos_v1";
 
 function mergeOrders(base: ServiceOrder[], converted: ServiceOrder[]) {
   const map = new Map<string, ServiceOrder>();
@@ -299,6 +301,77 @@ function pushFinancialTransaction(transaction: ReturnType<typeof makeFinancialTr
 }
 
 
+
+function addHoursToTime(time: string, hours: number) {
+  const [hourText, minuteText] = time.split(":");
+  const date = new Date();
+  date.setHours(Number(hourText || 9), Number(minuteText || 0), 0, 0);
+  date.setHours(date.getHours() + hours);
+
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function makeAppointmentFromOrder(order: ServiceOrder) {
+  const start = "09:00";
+
+  return {
+    id: `AG-${order.id.replace(/\W/g, "")}`,
+    title: order.title,
+    client: order.client,
+    phone: order.phone,
+    address: order.address,
+    region: "A definir",
+    type: order.type || "Execução técnica",
+    status: "Agendado",
+    priority: order.priority,
+    date: order.date || new Date().toISOString().slice(0, 10),
+    start,
+    end: addHoursToTime(start, 2),
+    technician: order.technician || "Guilherme Santana",
+    os: order.id,
+    quote: order.quote || "Sem cotação",
+    value: order.value,
+    costCenter: "Operação técnica",
+    recurrence: "Não repetir",
+    materials: order.materials?.length ? order.materials : ["Materiais a definir"],
+    checklist: [
+      { item: "Confirmar horário com cliente", done: false },
+      { item: "Separar materiais e ferramentas", done: false },
+      { item: "Ir até o local", done: false },
+      { item: "Executar serviço", done: false },
+      { item: "Registrar fotos e finalizar", done: false }
+    ],
+    notes: [
+      `Compromisso gerado automaticamente pela OS ${order.id}.`,
+      order.notes
+    ].filter(Boolean).join("\n")
+  };
+}
+
+function pushAppointmentToAgenda(appointment: ReturnType<typeof makeAppointmentFromOrder>) {
+  const savedAgenda = localStorage.getItem(AGENDA_STORAGE_KEY);
+  const parsedAgenda = savedAgenda ? JSON.parse(savedAgenda) : [];
+  const currentAgenda = Array.isArray(parsedAgenda) ? parsedAgenda : [];
+
+  const savedQueue = localStorage.getItem(AGENDA_QUEUE_KEY);
+  const parsedQueue = savedQueue ? JSON.parse(savedQueue) : [];
+  const currentQueue = Array.isArray(parsedQueue) ? parsedQueue : [];
+
+  const existsInAgenda = currentAgenda.some((item: { id?: string; os?: string }) => item.id === appointment.id || item.os === appointment.os);
+  const existsInQueue = currentQueue.some((item: { id?: string; os?: string }) => item.id === appointment.id || item.os === appointment.os);
+
+  if (!existsInAgenda) {
+    localStorage.setItem(AGENDA_STORAGE_KEY, JSON.stringify([appointment, ...currentAgenda]));
+  }
+
+  if (!existsInQueue) {
+    localStorage.setItem(AGENDA_QUEUE_KEY, JSON.stringify([appointment, ...currentQueue]));
+  }
+
+  return existsInAgenda || existsInQueue;
+}
+
+
 export default function OrdensPage() {
   const [orders, setOrders] = useState<ServiceOrder[]>(ordersSeed);
   const [search, setSearch] = useState("");
@@ -385,6 +458,49 @@ export default function OrdensPage() {
     setEditOpen(false);
   }
 
+
+  function scheduleOrderToAgenda(order: ServiceOrder) {
+    try {
+      const appointment = makeAppointmentFromOrder(order);
+      const alreadyExists = pushAppointmentToAgenda(appointment);
+
+      const notesMessage = `Compromisso na agenda vinculado: ${appointment.id}`;
+
+      setOrders((current) => current.map((item) => {
+        if (item.id !== order.id) return item;
+
+        return {
+          ...item,
+          status: item.status === "Orçamento" ? "Agendada" : item.status,
+          notes: item.notes.includes(notesMessage) ? item.notes : `${item.notes}\n${notesMessage}`.trim()
+        };
+      }));
+
+      setSelected((current) => {
+        if (!current || current.id !== order.id) return current;
+
+        return {
+          ...current,
+          status: current.status === "Orçamento" ? "Agendada" : current.status,
+          notes: current.notes.includes(notesMessage) ? current.notes : `${current.notes}\n${notesMessage}`.trim()
+        };
+      });
+
+      window.dispatchEvent(new CustomEvent("volt:agenda-compromisso-criado", { detail: appointment }));
+
+      const message = alreadyExists
+        ? `A OS ${order.id} já tinha compromisso na agenda.`
+        : `Compromisso ${appointment.id} criado para a OS ${order.id}.`;
+
+      const openAgenda = window.confirm(`${message}\n\nDeseja abrir a Agenda agora?`);
+
+      if (openAgenda) {
+        window.location.href = "/agenda";
+      }
+    } catch {
+      alert("Não foi possível agendar esta OS agora.");
+    }
+  }
 
   function launchOrderToFinance(order: ServiceOrder) {
     try {
@@ -670,6 +786,7 @@ export default function OrdensPage() {
 
                 <div className="flex gap-2">
                   <a href={`https://wa.me/55${selected.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
+                  <button onClick={() => scheduleOrderToAgenda(selected)} className="btn-ghost inline-flex items-center gap-2"><CalendarDays size={17} /> Agendar execução</button>
                   <button onClick={() => launchOrderToFinance(selected)} className="btn-ghost inline-flex items-center gap-2"><Wallet size={17} /> Lançar financeiro</button>
                   <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
                   <button onClick={duplicateSelected} className="btn-ghost">Duplicar</button>
@@ -744,7 +861,7 @@ export default function OrdensPage() {
                   <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
                     <p className="text-sm font-black text-volt-yellow">Pronto para evoluir</p>
                     <p className="mt-2 text-sm leading-7 text-zinc-300">
-                      Agora a OS pode ser lançada no financeiro com conta a receber vinculada, além de anexos, aceite do cliente e banco Supabase.
+                      Agora a OS pode ser agendada e lançada no financeiro, além de anexos, aceite do cliente e banco Supabase.
                     </p>
                   </div>
                 </div>
