@@ -1196,13 +1196,26 @@ export default function CotacoesPage() {
     };
 
     try {
-      const saved = localStorage.getItem("volt_ordens_premium_v1");
-      const parsed = saved ? JSON.parse(saved) : [];
-      const currentOrders = Array.isArray(parsed) ? parsed : [];
-      const exists = currentOrders.some((order: { id?: string; quote?: string }) => order.id === osNumber || order.quote === quoteToConvert.id);
+      const ordersKey = "volt_ordens_premium_v1";
+      const queueKey = "volt_ordens_convertidas_v1";
 
-      if (!exists) {
-        localStorage.setItem("volt_ordens_premium_v1", JSON.stringify([serviceOrder, ...currentOrders]));
+      const savedOrders = localStorage.getItem(ordersKey);
+      const parsedOrders = savedOrders ? JSON.parse(savedOrders) : [];
+      const currentOrders = Array.isArray(parsedOrders) ? parsedOrders : [];
+
+      const savedQueue = localStorage.getItem(queueKey);
+      const parsedQueue = savedQueue ? JSON.parse(savedQueue) : [];
+      const currentQueue = Array.isArray(parsedQueue) ? parsedQueue : [];
+
+      const existsInOrders = currentOrders.some((order: { id?: string; quote?: string }) => order.id === osNumber || order.quote === quoteToConvert.id);
+      const existsInQueue = currentQueue.some((order: { id?: string; quote?: string }) => order.id === osNumber || order.quote === quoteToConvert.id);
+
+      if (!existsInOrders) {
+        localStorage.setItem(ordersKey, JSON.stringify([serviceOrder, ...currentOrders]));
+      }
+
+      if (!existsInQueue) {
+        localStorage.setItem(queueKey, JSON.stringify([serviceOrder, ...currentQueue]));
       }
 
       window.dispatchEvent(new CustomEvent("volt:ordem-criada", { detail: serviceOrder }));
@@ -1224,7 +1237,11 @@ export default function CotacoesPage() {
       return updated;
     }));
 
-    alert(`Orçamento convertido em ${osNumber}. A OS foi criada na tela de Ordens de Serviço.`);
+    const openOrders = window.confirm(`Orçamento convertido em ${osNumber}.\n\nA OS foi criada em Ordens de Serviço.\nDeseja abrir a tela de Ordens agora?`);
+
+    if (openOrders) {
+      window.location.href = "/ordens";
+    }
   }
 
   const filtered = useMemo(() => {
