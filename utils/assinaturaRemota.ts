@@ -29,6 +29,8 @@ export type RemoteSignatureQuoteSnapshot = {
   items: RemoteSignatureQuoteItem[];
 };
 
+export type RemoteSignatureStyle = "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
+
 export type RemoteSignatureCheckResult = {
   found: boolean;
   status?: "pending" | "signed" | "expired" | "cancelled";
@@ -41,6 +43,7 @@ export type RemoteSignatureCheckResult = {
     mode?: "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
     signedAt?: string;
     signatureDataUrl?: string;
+    signatureStyle?: RemoteSignatureStyle;
     acceptedTerms?: boolean;
   };
 };
@@ -94,12 +97,12 @@ export function makeSignatureWhatsAppLink(phone: string | undefined, signingUrl:
   const phoneNumber = digits.startsWith("55") ? digits : `55${digits}`;
 
   const message = [
-    "Olá! Segue o link para aprovar e assinar seu orçamento da Volt Soluções Elétricas:",
+    "Olá! Segue o link do seu orçamento da Volt Soluções Elétricas para análise e assinatura digital:",
     "",
     `Orçamento: ${quoteId}`,
     signingUrl,
     "",
-    "Você pode abrir pelo celular e assinar com o dedo."
+    "Você não precisa acessar nenhum sistema. É só abrir o link pelo celular, conferir o orçamento e assinar com o dedo ou escolher uma rubrica."
   ].join("\n");
 
   return `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
