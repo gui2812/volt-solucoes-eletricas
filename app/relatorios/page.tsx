@@ -21,7 +21,6 @@ import {
   Wrench,
   Zap
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -59,51 +58,61 @@ const reportModels: {
   title: string;
   description: string;
   modules: string[];
-  icon: LucideIcon;
 }[] = [
   {
     kind: "Executivo",
     title: "Relatório Executivo Geral",
     description: "Visão completa da operação: financeiro, orçamentos, OS, agenda, clientes, metas e alertas.",
-    modules: ["Dashboard", "Financeiro", "Clientes", "OS", "Agenda", "Cotações"],
-    icon: BarChart3
+    modules: ["Dashboard", "Financeiro", "Clientes", "OS", "Agenda", "Cotações"]
   },
   {
     kind: "Financeiro",
     title: "Relatório Financeiro Completo",
     description: "Receitas, despesas, contas a pagar, contas a receber, lucro, metas, vencidos e fluxo.",
-    modules: ["Financeiro", "Metas", "OS"],
-    icon: Wallet
+    modules: ["Financeiro", "Metas", "OS"]
   },
   {
     kind: "Operacional",
     title: "Relatório Operacional de OS",
     description: "Ordens de serviço, status, valores, agenda, pagamentos e produtividade.",
-    modules: ["OS", "Agenda", "Financeiro"],
-    icon: Wrench
+    modules: ["OS", "Agenda", "Financeiro"]
   },
   {
     kind: "Clientes",
     title: "Relatório de Clientes e CRM",
     description: "Carteira, leads, inadimplência, documentos, histórico e ranking financeiro por cliente.",
-    modules: ["Clientes", "Financeiro", "Cotações"],
-    icon: Users
+    modules: ["Clientes", "Financeiro", "Cotações"]
   },
   {
     kind: "Agenda",
     title: "Relatório de Agenda Técnica",
     description: "Compromissos, técnicos, status, atrasos, recorrências e OS vinculadas.",
-    modules: ["Agenda", "OS"],
-    icon: CalendarDays
+    modules: ["Agenda", "OS"]
   },
   {
     kind: "Comercial",
     title: "Relatório Comercial de Orçamentos",
     description: "Funil de propostas, assinaturas, aprovações, recusas, negociação e conversão em OS.",
-    modules: ["Cotações", "Assinaturas", "Clientes"],
-    icon: FileText
+    modules: ["Cotações", "Assinaturas", "Clientes"]
   }
 ];
+
+function renderReportIcon(kind: ReportKind, size = 26) {
+  switch (kind) {
+    case "Financeiro":
+      return <Wallet size={size} />;
+    case "Operacional":
+      return <Wrench size={size} />;
+    case "Clientes":
+      return <Users size={size} />;
+    case "Agenda":
+      return <CalendarDays size={size} />;
+    case "Comercial":
+      return <FileText size={size} />;
+    default:
+      return <BarChart3 size={size} />;
+  }
+}
 
 function currency(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -208,18 +217,18 @@ function KpiCard({
   label,
   value,
   note,
-  icon: Icon,
+  icon,
   tone = "text-volt-yellow"
 }: {
   label: string;
   value: string;
   note: string;
-  icon: LucideIcon;
+  icon: React.ReactNode;
   tone?: string;
 }) {
   return (
     <article className="card-premium rounded-3xl p-5">
-      <Icon className={tone} size={26} />
+      <div className={tone}>{icon}</div>
       <p className={`mt-5 text-3xl font-black ${tone}`}>{value}</p>
       <p className="mt-1 text-sm font-black">{label}</p>
       <p className="mt-1 text-xs leading-5 text-zinc-500">{note}</p>
@@ -725,10 +734,10 @@ export default function RelatoriosPage() {
         {activeTab === "Visão Geral" && (
           <>
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <KpiCard label="Receita recebida" value={currency(reportData.revenueReceived)} note={`${currency(reportData.revenueOpen)} em aberto`} icon={Wallet} tone="text-volt-ok" />
-              <KpiCard label="Lucro parcial" value={currency(reportData.profit)} note={`${currency(reportData.expenses)} em despesas/contas`} icon={TrendingUp} tone={reportData.profit >= 0 ? "text-volt-yellow" : "text-red-300"} />
-              <KpiCard label="OS abertas" value={String(reportData.ordersOpen)} note={`${reportData.ordersProgress} em andamento • ${reportData.ordersFinished} finalizadas`} icon={ClipboardCheck} tone="text-blue-300" />
-              <KpiCard label="Meta mensal" value={percent(reportData.monthlyGoalPercent)} note={`${currency(reportData.monthlyActual)} de ${currency(reportData.monthlyTarget)}`} icon={Target} tone="text-volt-yellow" />
+              <KpiCard label="Receita recebida" value={currency(reportData.revenueReceived)} note={`${currency(reportData.revenueOpen)} em aberto`} icon={<Wallet size={26} />} tone="text-volt-ok" />
+              <KpiCard label="Lucro parcial" value={currency(reportData.profit)} note={`${currency(reportData.expenses)} em despesas/contas`} icon={<TrendingUp size={26} />} tone={reportData.profit >= 0 ? "text-volt-yellow" : "text-red-300"} />
+              <KpiCard label="OS abertas" value={String(reportData.ordersOpen)} note={`${reportData.ordersProgress} em andamento • ${reportData.ordersFinished} finalizadas`} icon={<ClipboardCheck size={26} />} tone="text-blue-300" />
+              <KpiCard label="Meta mensal" value={percent(reportData.monthlyGoalPercent)} note={`${currency(reportData.monthlyActual)} de ${currency(reportData.monthlyTarget)}`} icon={<Target size={26} />} tone="text-volt-yellow" />
             </section>
 
             <section className="grid gap-5 xl:grid-cols-[1fr_.9fr]">
@@ -782,14 +791,11 @@ export default function RelatoriosPage() {
 
         {activeTab === "Modelos" && (
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {reportModels.map((model) => {
-              const Icon = model.icon;
-
-              return (
+            {reportModels.map((model) => (
                 <article key={model.kind} className="card-premium rounded-[2rem] p-5">
                   <div className="mb-5 flex items-start justify-between gap-4">
                     <div className="grid h-14 w-14 place-items-center rounded-2xl bg-volt-yellow text-black">
-                      <Icon size={26} />
+                      {renderReportIcon(model.kind, 26)}
                     </div>
                     <Badge className="bg-volt-yellow/15 text-volt-yellow border-volt-yellow/25">{model.kind}</Badge>
                   </div>
@@ -805,8 +811,7 @@ export default function RelatoriosPage() {
 
                   <button onClick={() => generateReport(model.kind)} className="btn-primary mt-6 w-full">Gerar PDF</button>
                 </article>
-              );
-            })}
+              ))}
           </section>
         )}
 
@@ -892,15 +897,15 @@ export default function RelatoriosPage() {
 
         {activeTab === "Exportações" && (
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {([
-              { title: "PDF Executivo", description: "Relatório geral com todas as áreas.", action: () => generateReport("Executivo"), Icon: FileText },
-              { title: "PDF Financeiro", description: "Receitas, despesas e contas.", action: () => generateReport("Financeiro"), Icon: Wallet },
-              { title: "PDF Operacional", description: "OS, agenda e atendimentos.", action: () => generateReport("Operacional"), Icon: Wrench },
-              { title: "PDF Clientes", description: "CRM, carteira e inadimplência.", action: () => generateReport("Clientes"), Icon: Users },
-              { title: "CSV Geral", description: "Resumo numérico para planilha.", action: exportReportCsv, Icon: Download }
-            ] as { title: string; description: string; action: () => void; Icon: LucideIcon }[]).map(({ title, description, action, Icon }) => (
+            {[
+              { title: "PDF Executivo", description: "Relatório geral com todas as áreas.", action: () => generateReport("Executivo"), icon: <FileText className="text-volt-yellow" size={30} /> },
+              { title: "PDF Financeiro", description: "Receitas, despesas e contas.", action: () => generateReport("Financeiro"), icon: <Wallet className="text-volt-yellow" size={30} /> },
+              { title: "PDF Operacional", description: "OS, agenda e atendimentos.", action: () => generateReport("Operacional"), icon: <Wrench className="text-volt-yellow" size={30} /> },
+              { title: "PDF Clientes", description: "CRM, carteira e inadimplência.", action: () => generateReport("Clientes"), icon: <Users className="text-volt-yellow" size={30} /> },
+              { title: "CSV Geral", description: "Resumo numérico para planilha.", action: exportReportCsv, icon: <Download className="text-volt-yellow" size={30} /> }
+            ].map(({ title, description, action, icon }) => (
               <article key={title} className="card-premium rounded-[2rem] p-5">
-                <Icon className="text-volt-yellow" size={30} />
+                {icon}
                 <h3 className="mt-5 text-2xl font-black">{title}</h3>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">{description}</p>
                 <button onClick={action} className="btn-primary mt-6 w-full">Gerar</button>
