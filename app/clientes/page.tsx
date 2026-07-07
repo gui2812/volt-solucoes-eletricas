@@ -20,6 +20,7 @@ import {
   Search,
   Target,
   TrendingUp,
+  UploadCloud,
   UserPlus,
   Users,
   Wallet,
@@ -711,6 +712,72 @@ function buildClientsFromSystem() {
 }
 
 
+
+async function fetchSupabaseClients() {
+  const response = await fetch("/api/clients", {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível carregar clientes do Supabase.");
+  }
+
+  const data = await response.json();
+
+  return Array.isArray(data.clients) ? data.clients as Client[] : [];
+}
+
+async function saveClientToSupabase(client: Client) {
+  const response = await fetch("/api/clients", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ client })
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível salvar cliente no Supabase.");
+  }
+
+  const data = await response.json();
+
+  return data.client as Client;
+}
+
+async function saveManyClientsToSupabase(clients: Client[]) {
+  const response = await fetch("/api/clients", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ clients })
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível migrar clientes para o Supabase.");
+  }
+
+  const data = await response.json();
+
+  return Array.isArray(data.clients) ? data.clients as Client[] : [];
+}
+
+async function deleteClientFromSupabase(client: Client) {
+  const response = await fetch(`/api/clients?legacyId=${encodeURIComponent(client.id)}&key=${encodeURIComponent(clientKey(client))}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível excluir cliente no Supabase.");
+  }
+}
+
+
 export default function ClientesPage() {
   const [clients, setClients] = useState<Client[]>(clientsSeed);
   const [leads, setLeads] = useState<Lead[]>(leadsSeed);
@@ -725,20 +792,40 @@ export default function ClientesPage() {
   const [documentClientId, setDocumentClientId] = useState("");
   const [documentDraft, setDocumentDraft] = useState("");
   const [storageReady, setStorageReady] = useState(false);
+  const [supabaseStatus, setSupabaseStatus] = useState("Carregando clientes...");
 
-  function syncClientsFromStorage() {
+  async function syncClientsFromStorage() {
     try {
+      setSupabaseStatus("Sincronizando com Supabase...");
+
       const savedClients = readClientsFromStorage();
       const integratedClients = buildClientsFromSystem();
       const deletedKeys = readDeletedClientKeys();
-      const merged = mergeClientCollections(savedClients, integratedClients)
+      const localMerged = mergeClientCollections(savedClients, integratedClients)
         .filter((client) => !isDeletedClient(client, deletedKeys));
+
+      let merged = localMerged;
+
+      try {
+        const supabaseClients = await fetchSupabaseClients();
+
+        if (supabaseClients.length) {
+          merged = mergeClientCollections(supabaseClients, localMerged)
+            .filter((client) => !isDeletedClient(client, deletedKeys));
+          setSupabaseStatus(`Supabase conectado • ${supabaseClients.length} cliente(s) no banco`);
+        } else {
+          setSupabaseStatus("Supabase conectado • banco ainda sem clientes");
+        }
+      } catch (error) {
+        setSupabaseStatus(error instanceof Error ? error.message : "Supabase indisponível, usando dados locais");
+      }
 
       setClients(merged);
       setSelected((current) => current ? merged.find((item) => item.id === current.id) ?? merged[0] ?? null : merged[0] ?? null);
       localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(merged));
     } catch {
       setClients(clientsSeed);
+      setSupabaseStatus("Não foi possível carregar clientes.");
     } finally {
       setStorageReady(true);
     }
@@ -1093,7 +1180,7 @@ export default function ClientesPage() {
     setEditOpen(true);
   }
 
-  function saveClient() {
+  async function saveClient() {
     if (!draft) return;
 
     const next = makeClientFromPartial({
@@ -1110,20 +1197,30 @@ export default function ClientesPage() {
 
     setClients((current) => {
       const exists = current.some((item) => item.id === next.id);
-
-      return exists
+      const updated = exists
         ? current.map((item) => item.id === next.id ? next : item)
         : [next, ...current];
+
+      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
     });
 
     setSelected(next);
     setModalOpen(true);
     setEditOpen(false);
     setDraft(null);
+
+    try {
+      await saveClientToSupabase(next);
+      setSupabaseStatus(`Cliente ${next.name} salvo no Supabase`);
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Cliente salvo localmente, mas falhou no Supabase");
+      alert("Cliente salvo localmente, mas ainda não foi para o Supabase. Confira as variáveis e a tabela app_clients.");
+    }
   }
 
-  function removeClient(client: Client) {
-    if (!window.confirm(`Excluir ${client.name} do CRM?\n\nEle não aparecerá mais na lista, mesmo que tenha vindo de orçamento, OS, agenda ou financeiro.`)) return;
+  async function removeClient(client: Client) {
+    if (!window.confirm(`Excluir ${client.name} do CRM?\n\nEle não aparecerá mais na lista e também será marcado como excluído no Supabase.`)) return;
 
     try {
       const deletedKeys = readDeletedClientKeys();
@@ -1152,6 +1249,14 @@ export default function ClientesPage() {
     }
 
     setModalOpen(false);
+
+    try {
+      await deleteClientFromSupabase(client);
+      setSupabaseStatus(`Cliente ${client.name} excluído do Supabase`);
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Cliente excluído localmente, mas falhou no Supabase");
+      alert("Cliente excluído localmente, mas não consegui marcar como excluído no Supabase.");
+    }
   }
 
   function restoreDeletedClients() {
@@ -1159,6 +1264,22 @@ export default function ClientesPage() {
 
     localStorage.removeItem(DELETED_CLIENTS_STORAGE_KEY);
     syncClientsFromStorage();
+  }
+
+  async function migrateClientsToSupabase() {
+    if (!window.confirm("Enviar a base atual de clientes para o Supabase?\n\nIsso vai gravar/atualizar os clientes no banco.")) return;
+
+    try {
+      setSupabaseStatus("Migrando clientes para Supabase...");
+      const migrated = await saveManyClientsToSupabase(clients);
+
+      setSupabaseStatus(`Migração concluída • ${migrated.length || clients.length} cliente(s) enviados`);
+      alert("Clientes enviados para o Supabase.");
+      await syncClientsFromStorage();
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Falha ao migrar clientes para Supabase");
+      alert("Não foi possível migrar agora. Confira se a tabela app_clients existe no Supabase.");
+    }
   }
 
   function moveLead(id: string, status: Lead["status"]) {
@@ -1195,6 +1316,7 @@ export default function ClientesPage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
               <button onClick={createClient} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Novo cliente</button>
               <button onClick={syncClientsFromStorage} className="btn-ghost inline-flex items-center justify-center gap-2"><Users size={17} /> Atualizar CRM</button>
+              <button onClick={migrateClientsToSupabase} className="btn-ghost inline-flex items-center justify-center gap-2"><UploadCloud size={17} /> Migrar Supabase</button>
               <button onClick={restoreDeletedClients} className="btn-ghost inline-flex items-center justify-center gap-2"><RefreshCcw size={17} /> Restaurar excluídos</button>
               <button onClick={() => setActiveTab("Leads")} className="btn-ghost inline-flex items-center justify-center gap-2"><UserPlus size={17} /> Novo lead</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
