@@ -9,7 +9,7 @@ export type OrcamentoPdfItem = {
 
 export type OrcamentoPdfSignature = {
   signerName?: string;
-  mode?: "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
+  mode?: "Pendente" | "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
   signedAt?: string;
   signatureDataUrl?: string;
   signatureStyle?: "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
