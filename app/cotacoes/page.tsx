@@ -37,7 +37,7 @@ type QuoteStatus =
   | "Convertida em OS";
 
 
-type SignatureMode = "Pendente" | "Rubrica predefinida" | "Assinatura livre";
+type SignatureMode = "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
 
 type SignatureData = {
   signerName: string;
@@ -536,28 +536,74 @@ export default function CotacoesPage() {
     return `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
   }
 
-  function openQuotePdf(quote: Quote) {
-    const discountValue = quote.items.reduce((sum, item) => {
+  async function openQuotePdf(quote: Quote) {
+    let pdfQuote = quote;
+
+    if (quote.signatureStatus === "Enviada" || quote.signatureToken || quote.signatureUrl) {
+      try {
+        const result = await checkRemoteSignatureStatus(quote.id);
+
+        if (result.found) {
+          const remoteStatus: RemoteSignatureStatus =
+            result.status === "signed"
+              ? "Assinada"
+              : result.status === "expired"
+                ? "Expirada"
+                : result.status === "cancelled"
+                  ? "Cancelada"
+                  : "Enviada";
+
+          const clientSignature = result.clientSignature
+            ? {
+                signerName: result.clientSignature.signerName || quote.contact || quote.client || "Cliente",
+                mode: result.clientSignature.mode || "Assinatura livre",
+                signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || todayIso(),
+                signatureDataUrl: result.clientSignature.signatureDataUrl || ""
+              } as SignatureData
+            : quote.clientSignature;
+
+          const newStatus: QuoteStatus =
+            result.status === "signed" && !["Convertida em OS", "Recusada"].includes(quote.status)
+              ? "Aprovada"
+              : quote.status;
+
+          pdfQuote = {
+            ...quote,
+            status: newStatus,
+            signatureStatus: remoteStatus,
+            signedAt: result.signedAt || quote.signedAt,
+            clientSignature
+          };
+
+          setQuotes((current) => current.map((item) => item.id === quote.id ? { ...item, ...pdfQuote } : item));
+          setSelected((current) => current?.id === quote.id ? { ...current, ...pdfQuote } : current);
+        }
+      } catch {
+        // Se a verificação remota falhar, o PDF ainda é gerado com os dados locais.
+      }
+    }
+
+    const discountValue = pdfQuote.items.reduce((sum, item) => {
       const gross = item.quantity * item.unitPrice;
       return sum + gross * (item.discount / 100);
     }, 0);
 
-    const laborValue = quote.items
+    const laborValue = pdfQuote.items
       .filter((item) => item.kind === "Mão de obra")
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
 
     openOrcamentoPdf({
-      number: quote.id,
-      date: quote.createdAt,
-      validUntil: quote.validUntil,
-      status: quote.status,
+      number: pdfQuote.id,
+      date: pdfQuote.createdAt,
+      validUntil: pdfQuote.validUntil,
+      status: pdfQuote.status,
 
-      clientName: quote.client,
-      clientPhone: quote.phone,
-      clientAddress: quote.address,
-      service: quote.title,
+      clientName: pdfQuote.client,
+      clientPhone: pdfQuote.phone,
+      clientAddress: pdfQuote.address,
+      service: pdfQuote.title,
 
-      items: quote.items.map((item) => ({
+      items: pdfQuote.items.map((item) => ({
         description: item.description,
         quantity: item.quantity,
         unit: item.unit,
@@ -569,23 +615,23 @@ export default function CotacoesPage() {
       laborValue,
       discountValue,
 
-      paymentCondition: quote.payment,
-      executionDeadline: quote.deadline,
-      warranty: quote.warranty,
+      paymentCondition: pdfQuote.payment,
+      executionDeadline: pdfQuote.deadline,
+      warranty: pdfQuote.warranty,
 
       technicalNotes: [
         "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
         "Os valores podem sofrer alteração caso haja mudança de escopo, local de instalação ou necessidade de materiais adicionais.",
         "A execução será iniciada após aprovação do orçamento e alinhamento de agenda.",
-        quote.notes
+        pdfQuote.notes
       ].filter(Boolean),
 
-      responsibleName: quote.responsible || "Guilherme Santana",
+      responsibleName: pdfQuote.responsible || "Guilherme Santana",
       responsibleRole: "Responsável técnico",
       responsibleDocument: "Volt Soluções Elétricas",
 
-      responsibleSignature: quote.responsibleSignature ?? makeSignature(quote.responsible || "Guilherme Santana", "Rubrica predefinida"),
-      clientSignature: quote.clientSignature ?? makeSignature(quote.client || quote.contact || "Cliente", "Pendente"),
+      responsibleSignature: pdfQuote.responsibleSignature ?? makeSignature(pdfQuote.responsible || "Guilherme Santana", "Rubrica predefinida"),
+      clientSignature: pdfQuote.clientSignature ?? makeSignature(pdfQuote.client || pdfQuote.contact || "Cliente", "Pendente"),
 
       companyPhone: "(11) 98878-3401",
       companyEmail: "solucoeseletricasvolt@gmail.com",
@@ -1215,8 +1261,19 @@ export default function CotacoesPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <a href={quoteWhatsAppLink(selected)} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
-                  <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF</button>
+                  <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF final</button>
                   <button onClick={() => sendToRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><Send size={17} /> Enviar assinatura</button>
+                  {selected.signatureUrl && (
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(selected.signatureUrl || "");
+                        alert("Link de assinatura copiado.");
+                      }}
+                      className="btn-ghost"
+                    >
+                      Copiar link
+                    </button>
+                  )}
                   <button onClick={() => checkRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><CheckCircle2 size={17} /> Verificar assinatura</button>
                   <button onClick={() => convertQuoteToOs(selected.id)} className="btn-ghost">Converter em OS</button>
                   <button onClick={() => openEditor(selected)} className="btn-primary">Editar</button>
@@ -1407,7 +1464,7 @@ function QuoteEditorModal({
               <MessageCircle size={17} /> WhatsApp
             </a>
             <button onClick={onPdf} className="btn-ghost inline-flex items-center gap-2">
-              <FileText size={17} /> PDF
+              <FileText size={17} /> PDF final
             </button>
             <button onClick={onCancel} className="btn-ghost">Cancelar</button>
             <button onClick={onSave} className="btn-primary">Salvar orçamento</button>
@@ -1663,7 +1720,7 @@ function QuoteEditorModal({
 
               <div className="mt-5 grid gap-2">
                 <button onClick={onSave} className="btn-primary">Salvar orçamento</button>
-                <button onClick={onPdf} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Gerar PDF</button>
+                <button onClick={onPdf} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Gerar PDF final</button>
                 <a href={whatsappLink} target="_blank" rel="noreferrer" className="btn-ghost inline-flex items-center justify-center gap-2"><MessageCircle size={17} /> Enviar WhatsApp</a>
               </div>
 
