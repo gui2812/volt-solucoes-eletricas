@@ -103,6 +103,37 @@ export async function checkRemoteSignatureStatus(quoteId: string) {
   return data as RemoteSignatureCheckResult;
 }
 
+
+export async function checkRemoteSignatureByToken(token: string) {
+  if (!token?.trim()) {
+    return { found: false } as RemoteSignatureCheckResult;
+  }
+
+  const response = await fetch(`/api/signature/${encodeURIComponent(token)}`, {
+    cache: "no-store"
+  });
+
+  const data = await response.json();
+
+  if (response.status === 404 || response.status === 410) {
+    return { found: false } as RemoteSignatureCheckResult;
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || "Erro ao verificar assinatura pelo token.");
+  }
+
+  return {
+    found: true,
+    status: data.status,
+    token,
+    signingUrl: `/assinar/${token}`,
+    signedAt: data.signedAt,
+    expiresAt: data.expiresAt,
+    clientSignature: data.clientSignature
+  } as RemoteSignatureCheckResult;
+}
+
 export function makeSignatureWhatsAppLink(phone: string | undefined, signingUrl: string, quoteId: string) {
   const digits = String(phone || "").replace(/\D/g, "");
   const phoneNumber = digits.startsWith("55") ? digits : `55${digits}`;
