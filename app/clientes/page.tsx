@@ -284,6 +284,19 @@ function currency(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function safeDate() {
+  return new Date().toLocaleString("pt-BR");
+}
+
 function Badge({ className, children }: { className: string; children: React.ReactNode }) {
   return <span className={`rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[.12em] ${className}`}>{children}</span>;
 }
@@ -678,6 +691,8 @@ export default function ClientesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<Client | null>(null);
+  const [documentClientId, setDocumentClientId] = useState("");
+  const [documentDraft, setDocumentDraft] = useState("");
   const [storageReady, setStorageReady] = useState(false);
 
   function syncClientsFromStorage() {
@@ -744,6 +759,271 @@ export default function ClientesPage() {
 
     return { totalRevenue, totalOpen, totalOverdue, totalServices, active, recurring, inadimplente, leadTotal, conversion, retention, ticket, topClient };
   }, [filtered, leads]);
+
+  const documentClient = useMemo(() => {
+    return filtered.find((client) => client.id === documentClientId)
+      ?? selected
+      ?? filtered[0]
+      ?? clients[0]
+      ?? null;
+  }, [filtered, documentClientId, selected, clients]);
+
+  function openClientDocuments(client: Client) {
+    setDocumentClientId(client.id);
+    setSelected(client);
+    setActiveTab("Documentos");
+    setModalOpen(false);
+  }
+
+  function addDocumentToClient() {
+    if (!documentClient) {
+      alert("Selecione um cliente para adicionar documento.");
+      return;
+    }
+
+    const value = documentDraft.trim();
+
+    if (!value) {
+      alert("Digite o nome do documento, foto, laudo ou comprovante.");
+      return;
+    }
+
+    const updatedClient: Client = {
+      ...documentClient,
+      documents: documentClient.documents.includes(value)
+        ? documentClient.documents
+        : [...documentClient.documents, value],
+      timeline: documentClient.timeline.includes(`Documento adicionado: ${value}`)
+        ? documentClient.timeline
+        : [`Documento adicionado: ${value}`, ...documentClient.timeline]
+    };
+
+    setClients((current) => current.map((client) => client.id === updatedClient.id ? updatedClient : client));
+    setSelected(updatedClient);
+    setDocumentClientId(updatedClient.id);
+    setDocumentDraft("");
+  }
+
+  function removeDocumentFromClient(client: Client, documentName: string) {
+    const confirmed = window.confirm(`Remover "${documentName}" dos documentos de ${client.name}?`);
+
+    if (!confirmed) return;
+
+    const updatedClient: Client = {
+      ...client,
+      documents: client.documents.filter((item) => item !== documentName),
+      timeline: [`Documento removido: ${documentName}`, ...client.timeline]
+    };
+
+    setClients((current) => current.map((item) => item.id === updatedClient.id ? updatedClient : item));
+    setSelected(updatedClient);
+    setDocumentClientId(updatedClient.id);
+  }
+
+  function generateCrmReport() {
+    const topClients = [...filtered].sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 8);
+    const inadimplentes = filtered.filter((client) => client.status === "Inadimplente" || client.overdue > 0);
+    const recorrentes = filtered.filter((client) => client.status === "Recorrente" || client.rating === "Recorrente");
+    const leadsAbertos = leads.filter((lead) => lead.status !== "Convertido" && lead.status !== "Perdido");
+    const selectedClient = selected && filtered.some((client) => client.id === selected.id) ? selected : filtered[0];
+
+    const reportHtml = `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Relatório CRM Volt</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f4f4f0;
+      color: #111;
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page { padding: 8mm 0; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    .hero {
+      border-radius: 24px;
+      background: linear-gradient(135deg, #090909, #1b1b14);
+      color: white;
+      padding: 28px;
+      border: 1px solid #2a2a20;
+      box-shadow: 0 20px 60px rgba(0,0,0,.18);
+    }
+    .kicker { color: #ffcb2f; font-weight: 900; letter-spacing: .22em; text-transform: uppercase; font-size: 11px; }
+    h1 { margin: 10px 0 0; font-size: 34px; line-height: 1.05; }
+    h2 { margin: 0 0 12px; font-size: 23px; }
+    h3 { margin: 0; font-size: 15px; }
+    p { margin: 0; line-height: 1.55; }
+    .muted { color: #666; font-size: 12px; }
+    .hero .muted { color: #bdbdbd; }
+    .grid { display: grid; gap: 12px; }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .card {
+      background: white;
+      border: 1px solid #e5e2d7;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.06);
+    }
+    .kpi-value { font-size: 24px; font-weight: 900; color: #111; margin-top: 8px; }
+    .yellow { color: #d7a900; }
+    .green { color: #139447; }
+    .red { color: #c82f2f; }
+    .section { margin-top: 16px; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 11px; }
+    th { text-align: left; color: #777; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; padding: 0 10px; }
+    td { background: white; padding: 10px; border-top: 1px solid #e8e5dc; border-bottom: 1px solid #e8e5dc; vertical-align: top; }
+    td:first-child { border-left: 1px solid #e8e5dc; border-radius: 12px 0 0 12px; font-weight: 800; }
+    td:last-child { border-right: 1px solid #e8e5dc; border-radius: 0 12px 12px 0; }
+    .badge { display: inline-block; border-radius: 999px; padding: 4px 8px; background: #fff3bd; color: #7a5b00; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+    .bar { height: 8px; border-radius: 999px; background: #ece9df; overflow: hidden; margin-top: 8px; }
+    .bar span { display:block; height:100%; background:#ffcb2f; border-radius:999px; }
+    .footer { margin-top: 14px; color:#777; font-size:10px; display:flex; justify-content:space-between; }
+    .doc-list { display:grid; gap:8px; }
+    .doc { border:1px solid #ece9df; background:#fff; padding:10px; border-radius:12px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="hero">
+      <div class="kicker">CRM VOLT • Relatório executivo</div>
+      <h1>Carteira de clientes</h1>
+      <p class="muted">Relatório gerado em ${safeDate()} com clientes, leads, financeiro, documentos e histórico comercial.</p>
+    </div>
+
+    <div class="grid grid-4 section">
+      <div class="card"><div class="muted">Total clientes</div><div class="kpi-value">${filtered.length}</div></div>
+      <div class="card"><div class="muted">Clientes ativos</div><div class="kpi-value green">${stats.active}</div></div>
+      <div class="card"><div class="muted">Faturamento</div><div class="kpi-value yellow">${currency(stats.totalRevenue)}</div></div>
+      <div class="card"><div class="muted">Em aberto/vencido</div><div class="kpi-value red">${currency(stats.totalOpen + stats.totalOverdue)}</div></div>
+    </div>
+
+    <div class="grid grid-4 section">
+      <div class="card"><div class="muted">Leads abertos</div><div class="kpi-value">${leadsAbertos.length}</div><div class="bar"><span style="width:${Math.min(stats.conversion, 100)}%"></span></div><p class="muted">${stats.conversion}% conversão</p></div>
+      <div class="card"><div class="muted">Recorrentes</div><div class="kpi-value">${stats.recurring}</div><div class="bar"><span style="width:${Math.min(stats.retention, 100)}%"></span></div><p class="muted">${stats.retention}% retenção</p></div>
+      <div class="card"><div class="muted">OS registradas</div><div class="kpi-value">${stats.totalServices}</div></div>
+      <div class="card"><div class="muted">Ticket médio</div><div class="kpi-value">${currency(stats.ticket)}</div></div>
+    </div>
+
+    <div class="section card">
+      <h2>Resumo executivo</h2>
+      <p>O CRM possui <strong>${filtered.length}</strong> cliente(s), com <strong>${stats.active}</strong> ativo(s), <strong>${stats.recurring}</strong> recorrente(s) e <strong>${inadimplentes.length}</strong> com pendência/inadimplência. A carteira filtrada soma <strong>${currency(stats.totalRevenue)}</strong> em faturamento, com ticket médio de <strong>${currency(stats.ticket)}</strong>.</p>
+    </div>
+    <div class="footer"><span>Volt Soluções Elétricas</span><span>Página 1</span></div>
+  </section>
+
+  <section class="page">
+    <div class="hero">
+      <div class="kicker">Clientes prioritários</div>
+      <h1>Financeiro por cliente</h1>
+      <p class="muted">Ranking por faturamento, valores recebidos, em aberto e vencidos.</p>
+    </div>
+
+    <table class="section">
+      <thead>
+        <tr><th>Cliente</th><th>Status</th><th>Faturado</th><th>Recebido</th><th>Aberto</th><th>Vencido</th><th>OS</th></tr>
+      </thead>
+      <tbody>
+        ${topClients.map((client) => `
+          <tr>
+            <td>${escapeHtml(client.name)}<br><span class="muted">${escapeHtml(client.phone || client.email || client.city)}</span></td>
+            <td><span class="badge">${escapeHtml(client.status)}</span></td>
+            <td>${currency(client.totalRevenue)}</td>
+            <td>${currency(client.received)}</td>
+            <td>${currency(client.openAmount)}</td>
+            <td>${currency(client.overdue)}</td>
+            <td>${client.totalOs}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+
+    <div class="grid grid-2 section">
+      <div class="card">
+        <h2>Clientes com atenção</h2>
+        <div class="doc-list">
+          ${(inadimplentes.length ? inadimplentes : filtered.slice(0, 4)).slice(0, 6).map((client) => `
+            <div class="doc"><strong>${escapeHtml(client.name)}</strong><br><span class="muted">${escapeHtml(client.status)} • aberto ${currency(client.openAmount)} • vencido ${currency(client.overdue)}</span></div>
+          `).join("")}
+        </div>
+      </div>
+      <div class="card">
+        <h2>Clientes recorrentes</h2>
+        <div class="doc-list">
+          ${(recorrentes.length ? recorrentes : filtered.slice(0, 4)).slice(0, 6).map((client) => `
+            <div class="doc"><strong>${escapeHtml(client.name)}</strong><br><span class="muted">${client.totalOs} OS • ${currency(client.totalRevenue)} faturado</span></div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Volt Soluções Elétricas</span><span>Página 2</span></div>
+  </section>
+
+  <section class="page">
+    <div class="hero">
+      <div class="kicker">Dossiê individual</div>
+      <h1>${escapeHtml(selectedClient?.name || "Cliente")}</h1>
+      <p class="muted">${escapeHtml(selectedClient?.serviceInterest || "Sem serviço informado")} • ${escapeHtml(selectedClient?.phone || selectedClient?.email || "")}</p>
+    </div>
+
+    ${selectedClient ? `
+      <div class="grid grid-4 section">
+        <div class="card"><div class="muted">Faturado</div><div class="kpi-value yellow">${currency(selectedClient.totalRevenue)}</div></div>
+        <div class="card"><div class="muted">Recebido</div><div class="kpi-value green">${currency(selectedClient.received)}</div></div>
+        <div class="card"><div class="muted">Aberto</div><div class="kpi-value">${currency(selectedClient.openAmount)}</div></div>
+        <div class="card"><div class="muted">Vencido</div><div class="kpi-value red">${currency(selectedClient.overdue)}</div></div>
+      </div>
+
+      <div class="grid grid-2 section">
+        <div class="card">
+          <h2>Dados cadastrais</h2>
+          <p><strong>Documento:</strong> ${escapeHtml(selectedClient.document)}</p>
+          <p><strong>Endereço:</strong> ${escapeHtml(selectedClient.address || selectedClient.city)}</p>
+          <p><strong>Responsável:</strong> ${escapeHtml(selectedClient.responsible)}</p>
+          <p><strong>Origem:</strong> ${escapeHtml(selectedClient.origin)}</p>
+        </div>
+        <div class="card">
+          <h2>Documentos do cliente</h2>
+          <div class="doc-list">
+            ${(selectedClient.documents.length ? selectedClient.documents : ["Nenhum documento cadastrado"]).map((doc) => `<div class="doc">${escapeHtml(doc)}</div>`).join("")}
+          </div>
+        </div>
+      </div>
+
+      <div class="card section">
+        <h2>Linha do tempo</h2>
+        <div class="doc-list">
+          ${(selectedClient.timeline.length ? selectedClient.timeline : ["Sem histórico cadastrado"]).slice(0, 10).map((event) => `<div class="doc">${escapeHtml(event)}</div>`).join("")}
+        </div>
+      </div>
+    ` : `<div class="card section">Nenhum cliente selecionado.</div>`}
+
+    <div class="footer"><span>Volt Soluções Elétricas</span><span>Página 3</span></div>
+  </section>
+</body>
+</html>`;
+
+    const report = window.open("", "_blank", "width=1200,height=900");
+
+    if (!report) {
+      alert("O navegador bloqueou a janela do relatório. Permita pop-ups para gerar o PDF.");
+      return;
+    }
+
+    report.document.open();
+    report.document.write(reportHtml);
+    report.document.close();
+
+    setTimeout(() => {
+      report.focus();
+      report.print();
+    }, 500);
+  }
 
   function createClient() {
     const next = makeClientFromPartial({
@@ -853,7 +1133,7 @@ export default function ClientesPage() {
               <button onClick={syncClientsFromStorage} className="btn-ghost inline-flex items-center justify-center gap-2"><Users size={17} /> Atualizar CRM</button>
               <button onClick={() => setActiveTab("Leads")} className="btn-ghost inline-flex items-center justify-center gap-2"><UserPlus size={17} /> Novo lead</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
-              <button onClick={() => window.print()} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
+              <button onClick={generateCrmReport} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
             </div>
           </div>
         </section>
@@ -1112,53 +1392,183 @@ export default function ClientesPage() {
         )}
 
         {activeTab === "Documentos" && (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filtered.flatMap((client) => client.documents.map((doc) => ({ client, doc }))).map(({ client, doc }) => (
-              <article key={`${client.id}-${doc}`} className="card-premium rounded-[2rem] p-5">
-                <FolderOpen className="mb-5 text-volt-yellow" size={30} />
-                <h3 className="text-xl font-black">{doc}</h3>
-                <p className="mt-2 text-sm text-zinc-500">{client.name}</p>
-                <p className="mt-4 text-sm leading-6 text-zinc-400">Estrutura pronta para upload real, anexos, fotos, laudos e comprovantes.</p>
-              </article>
-            ))}
+          <section className="grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
+            <div className="card-premium rounded-[2rem] p-5 md:p-6">
+              <div className="mb-5 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Documentos por cliente</p>
+                  <h2 className="mt-1 text-2xl font-black">Selecione o cliente</h2>
+                  <p className="mt-2 text-sm leading-6 text-zinc-500">Fotos, laudos, comprovantes, relatórios e checklist ficam vinculados ao cadastro do cliente.</p>
+                </div>
+                <FolderOpen className="text-volt-yellow" size={30} />
+              </div>
+
+              <div className="space-y-3">
+                {filtered.map((client) => (
+                  <button
+                    key={client.id}
+                    onClick={() => {
+                      setDocumentClientId(client.id);
+                      setSelected(client);
+                    }}
+                    className={`w-full rounded-2xl border p-4 text-left transition ${
+                      documentClient?.id === client.id ? "border-volt-yellow/40 bg-volt-yellow/10" : "border-white/10 bg-white/[.035] hover:border-volt-yellow/30"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black">{client.name}</p>
+                        <p className="mt-1 text-xs text-zinc-500">{client.phone || client.email || client.city}</p>
+                      </div>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-zinc-400">{client.documents.length}</span>
+                    </div>
+                  </button>
+                ))}
+
+                {filtered.length === 0 && (
+                  <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4 text-sm font-bold text-zinc-500">
+                    Nenhum cliente encontrado com os filtros atuais.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card-premium rounded-[2rem] p-5 md:p-6">
+              {documentClient ? (
+                <>
+                  <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 md:flex-row md:items-start">
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Pasta do cliente</p>
+                      <h2 className="mt-1 text-3xl font-black">{documentClient.name}</h2>
+                      <p className="mt-2 text-sm text-zinc-500">{documentClient.phone || documentClient.email || "Sem contato"} • {documentClient.documents.length} documento(s)</p>
+                    </div>
+                    <button onClick={() => openClientEditor(documentClient)} className="btn-primary inline-flex items-center gap-2"><FileText size={17} /> Editar cadastro</button>
+                  </div>
+
+                  <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
+                    <p className="text-sm font-black text-volt-yellow">Adicionar documento</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                      <input
+                        value={documentDraft}
+                        onChange={(event) => setDocumentDraft(event.target.value)}
+                        placeholder="Ex: Foto antes/depois, relatório técnico, comprovante Pix, laudo, checklist..."
+                        className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none placeholder:text-zinc-600"
+                      />
+                      <button onClick={addDocumentToClient} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Adicionar</button>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-zinc-500">
+                      Nesta versão fica salvo como registro/descrição. Depois podemos evoluir para upload real de arquivo, imagem e PDF no Supabase Storage.
+                    </p>
+                  </div>
+
+                  <div className="mt-5 grid gap-4 md:grid-cols-2">
+                    {documentClient.documents.map((doc) => (
+                      <article key={`${documentClient.id}-${doc}`} className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+                        <FolderOpen className="mb-5 text-volt-yellow" size={30} />
+                        <h3 className="text-xl font-black">{doc}</h3>
+                        <p className="mt-2 text-sm text-zinc-500">{documentClient.name}</p>
+                        <p className="mt-4 text-sm leading-6 text-zinc-400">Documento vinculado ao cliente. Use para controlar fotos, laudos, comprovantes e relatórios.</p>
+                        <div className="mt-5 flex gap-2">
+                          <button onClick={() => setDocumentDraft(doc)} className="btn-ghost flex-1">Usar como base</button>
+                          <button onClick={() => removeDocumentFromClient(documentClient, doc)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Remover</button>
+                        </div>
+                      </article>
+                    ))}
+
+                    {documentClient.documents.length === 0 && (
+                      <div className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5 text-sm font-bold leading-7 text-zinc-400 md:col-span-2">
+                        Este cliente ainda não tem documentos cadastrados. Adicione fotos, laudos, comprovantes, checklist ou relatórios acima.
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5 text-sm font-bold text-zinc-400">
+                  Selecione um cliente para visualizar e lançar documentos.
+                </div>
+              )}
+            </div>
           </section>
         )}
 
         {activeTab === "Relatórios" && (
-          <section className="grid gap-5 xl:grid-cols-[1fr_.85fr]">
-            <div className="card-premium rounded-[2rem] p-5 md:p-6">
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Relatório de clientes</p>
-              <h2 className="mt-2 text-3xl font-black">CRM executivo</h2>
-              <p className="mt-3 text-sm leading-7 text-zinc-400">
-                Gere relatório de clientes ativos, leads, financeiro por cliente, inadimplência, clientes recorrentes e carteira completa.
-              </p>
-
-              <div className="mt-6 grid gap-3 md:grid-cols-2">
-                {["Geral de clientes", "Clientes ativos", "Leads", "Financeiro por cliente", "Inadimplência", "Clientes recorrentes", "Individual do cliente", "Completo executivo"].map((item) => (
-                  <div key={item} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 font-bold text-zinc-300">{item}</div>
-                ))}
+          <section className="space-y-5">
+            <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#111821] via-[#080c11] to-black p-5 shadow-soft md:p-7">
+              <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-volt-yellow/20 blur-[130px]" />
+              <div className="relative z-10 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Relatório executivo de CRM</p>
+                  <h2 className="mt-2 text-4xl font-black">Carteira de clientes</h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
+                    Relatório com capa, KPIs, ranking financeiro, inadimplência, recorrência, documentos e dossiê individual do cliente selecionado.
+                  </p>
+                </div>
+                <button onClick={generateCrmReport} className="btn-primary inline-flex items-center justify-center gap-2"><FileText size={17} /> Gerar relatório PDF</button>
               </div>
-
-              <button onClick={() => window.print()} className="btn-primary mt-6 inline-flex items-center gap-2">
-                <FileText size={17} /> Gerar relatório PDF
-              </button>
             </div>
 
-            <ChartCard title="Resumo da carteira" subtitle="KPIs principais para o relatório executivo." icon={<BarChart3 size={25} />}>
-              <div className="space-y-4">
-                {[
-                  ["Conversão de leads", stats.conversion],
-                  ["Retenção", stats.retention],
-                  ["Clientes ativos", (stats.active / Math.max(filtered.length, 1)) * 100],
-                  ["Clientes recorrentes", (stats.recurring / Math.max(filtered.length, 1)) * 100]
-                ].map(([label, value]) => (
-                  <div key={String(label)} className="rounded-2xl border border-white/10 bg-black/35 p-4">
-                    <div className="mb-2 flex justify-between text-sm font-black"><span>{String(label)}</span><span className="text-volt-yellow">{Math.round(Number(value))}%</span></div>
-                    <ProgressBar value={Number(value)} />
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ["Clientes", filtered.length, Users, "text-volt-yellow"],
+                ["Ativos", stats.active, CheckCircle2, "text-volt-ok"],
+                ["Faturamento", currency(stats.totalRevenue), Wallet, "text-volt-yellow"],
+                ["Inadimplentes", stats.inadimplente, AlertTriangle, "text-red-300"],
+                ["Leads", stats.leadTotal, UserPlus, "text-blue-300"],
+                ["Conversão", `${stats.conversion}%`, Target, "text-volt-yellow"],
+                ["Retenção", `${stats.retention}%`, TrendingUp, "text-volt-ok"],
+                ["Ticket", currency(stats.ticket), BarChart3, "text-volt-yellow"]
+              ].map(([label, value, Icon, color]) => (
+                <article key={label as string} className="card-premium rounded-3xl p-5">
+                  <Icon className={color as string} size={25} />
+                  <p className="mt-5 text-3xl font-black text-volt-yellow">{value as string}</p>
+                  <p className="mt-1 text-sm font-bold text-zinc-400">{label as string}</p>
+                </article>
+              ))}
+            </section>
+
+            <section className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
+              <ChartCard title="Top clientes por faturamento" subtitle="Ranking que vai para o relatório PDF." icon={<BarChart3 size={25} />}>
+                <div className="space-y-3">
+                  {[...filtered].sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 8).map((client, index) => (
+                    <div key={client.id} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-black">{index + 1}. {client.name}</p>
+                          <p className="mt-1 text-xs text-zinc-500">{client.status} • {client.totalOs} OS • {client.documents.length} doc(s)</p>
+                        </div>
+                        <p className="font-black text-volt-yellow">{currency(client.totalRevenue)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ChartCard>
+
+              <ChartCard title="Dossiê individual no PDF" subtitle="O relatório usa o cliente selecionado nos detalhes." icon={<FileText size={25} />}>
+                {selected ? (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
+                      <p className="text-sm font-black text-volt-yellow">Cliente selecionado</p>
+                      <h3 className="mt-2 text-2xl font-black">{selected.name}</h3>
+                      <p className="mt-2 text-sm text-zinc-400">{selected.serviceInterest}</p>
+                    </div>
+                    {[
+                      ["Faturado", currency(selected.totalRevenue)],
+                      ["Recebido", currency(selected.received)],
+                      ["Em aberto", currency(selected.openAmount)],
+                      ["Documentos", selected.documents.length]
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex justify-between rounded-2xl border border-white/10 bg-black/35 p-4 text-sm">
+                        <span className="text-zinc-500">{label}</span>
+                        <strong>{value}</strong>
+                      </div>
+                    ))}
+                    <button onClick={generateCrmReport} className="btn-primary w-full">Gerar PDF deste cliente</button>
                   </div>
-                ))}
-              </div>
-            </ChartCard>
+                ) : (
+                  <p className="rounded-2xl border border-white/10 bg-black/35 p-4 text-sm font-bold text-zinc-500">Abra um cliente em detalhes para usar como dossiê individual no relatório.</p>
+                )}
+              </ChartCard>
+            </section>
           </section>
         )}
 
@@ -1178,6 +1588,7 @@ export default function ClientesPage() {
                 <div className="flex flex-wrap gap-2">
                   <a href={`https://wa.me/55${selected.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
                   <button onClick={() => openClientEditor(selected)} className="btn-primary inline-flex items-center gap-2"><FileText size={17} /> Editar cadastro</button>
+                  <button onClick={() => openClientDocuments(selected)} className="btn-ghost inline-flex items-center gap-2"><FolderOpen size={17} /> Documentos do cliente</button>
                   <button onClick={() => removeClient(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Excluir</button>
                   <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
                 </div>
