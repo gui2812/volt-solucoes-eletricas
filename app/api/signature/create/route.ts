@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type CreateSignaturePayload = {
   quoteId: string;
   quoteSnapshot: Record<string, unknown>;
@@ -11,11 +14,22 @@ type CreateSignaturePayload = {
 };
 
 function getSupabaseConfig() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const rawUrl = process.env.SUPABASE_URL;
+  const rawKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url || !key) {
-    throw new Error("Configuração do Supabase ausente. Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel.");
+  const url = rawUrl?.trim();
+  const key = rawKey?.trim();
+
+  if (!url) {
+    throw new Error("SUPABASE_URL não configurada na Vercel.");
+  }
+
+  if (!key) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada na Vercel.");
+  }
+
+  if (!url.startsWith("https://")) {
+    throw new Error("SUPABASE_URL inválida. Ela precisa começar com https://");
   }
 
   return { url, key };
@@ -30,6 +44,20 @@ function addDays(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString();
+}
+
+function buildSupabaseEndpoint(baseUrl: string) {
+  return new URL("/rest/v1/quote_signature_links", baseUrl).toString();
+}
+
+async function readResponse(response: Response) {
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 export async function POST(request: Request) {
@@ -59,22 +87,47 @@ export async function POST(request: Request) {
       expires_at: addDays(expiresInDays)
     };
 
-    const response = await fetch(`${url}/rest/v1/quote_signature_links`, {
-      method: "POST",
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        Prefer: "return=representation"
-      },
-      body: JSON.stringify(insertPayload)
-    });
+    const endpoint = buildSupabaseEndpoint(url);
 
-    const data = await response.json();
+    let response: Response;
+
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation"
+        },
+        body: JSON.stringify(insertPayload)
+      });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error: "Falha ao conectar no Supabase. Confira se a SUPABASE_URL está correta e se o projeto Supabase está ativo.",
+          details: {
+            message: error instanceof Error ? error.message : String(error),
+            cause: error instanceof Error && "cause" in error ? String((error as Error & { cause?: unknown }).cause) : "",
+            supabaseHost: new URL(endpoint).host
+          }
+        },
+        { status: 500 }
+      );
+    }
+
+    const data = await readResponse(response);
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: "Erro ao criar link de assinatura.", details: data },
+        {
+          error: "Supabase recusou a criação do link de assinatura.",
+          details: {
+            status: response.status,
+            statusText: response.statusText,
+            response: data
+          }
+        },
         { status: response.status }
       );
     }
@@ -90,7 +143,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Erro inesperado." },
+      {
+        error: error instanceof Error ? error.message : "Erro inesperado ao criar link de assinatura."
+      },
       { status: 500 }
     );
   }
