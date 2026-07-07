@@ -325,6 +325,7 @@ function ProgressBar({ value }: { value: number }) {
 
 const AGENDA_STORAGE_KEY = "volt_agenda_premium_v1";
 const AGENDA_QUEUE_KEY = "volt_agenda_compromissos_v1";
+const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
 
 function mergeAppointments(base: Appointment[], incoming: Appointment[]) {
   const map = new Map<string, Appointment>();
@@ -354,6 +355,70 @@ function readAgendaQueue() {
   const parsed = saved ? JSON.parse(saved) : null;
 
   return Array.isArray(parsed) ? parsed as Appointment[] : [];
+}
+
+
+
+function mapAgendaStatusToOrderStatus(status: Status) {
+  if (["Agendado", "Confirmado", "Reagendado", "Atrasado"].includes(status)) {
+    return "Agendada";
+  }
+
+  if (["Em deslocamento", "Em atendimento"].includes(status)) {
+    return "Em andamento";
+  }
+
+  if (status === "Concluído") {
+    return "Finalizada";
+  }
+
+  if (status === "Cancelado") {
+    return "Cancelada";
+  }
+
+  return null;
+}
+
+function syncLinkedOrderStatusFromAgenda(appointment: Appointment, status: Status) {
+  if (!appointment.os || appointment.os === "Sem OS") return false;
+
+  const orderStatus = mapAgendaStatusToOrderStatus(status);
+
+  if (!orderStatus) return false;
+
+  const saved = localStorage.getItem(ORDERS_STORAGE_KEY);
+  const parsed = saved ? JSON.parse(saved) : [];
+
+  if (!Array.isArray(parsed)) return false;
+
+  let updated = false;
+  const note = `Agenda ${appointment.id} atualizada para ${status}.`;
+
+  const nextOrders = parsed.map((order: { id?: string; status?: string; notes?: string }) => {
+    if (order.id !== appointment.os) return order;
+
+    updated = true;
+
+    return {
+      ...order,
+      status: orderStatus,
+      notes: order.notes?.includes(note) ? order.notes : `${order.notes || ""}\n${note}`.trim()
+    };
+  });
+
+  if (updated) {
+    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(nextOrders));
+    window.dispatchEvent(new CustomEvent("volt:ordem-atualizada-por-agenda", {
+      detail: {
+        os: appointment.os,
+        appointmentId: appointment.id,
+        agendaStatus: status,
+        orderStatus
+      }
+    }));
+  }
+
+  return updated;
 }
 
 
@@ -461,9 +526,21 @@ export default function AgendaPage() {
   }, [filtered]);
 
   function moveStatus(id: string, status: Status) {
+    const appointment = appointments.find((item) => item.id === id);
+
+    if (appointment) {
+      try {
+        syncLinkedOrderStatusFromAgenda(appointment, status);
+      } catch {
+        // A agenda continua funcionando mesmo se a sincronização com a OS falhar.
+      }
+    }
+
     setAppointments((current) =>
       current.map((item) => (item.id === id ? { ...item, status } : item))
     );
+
+    setSelected((current) => current?.id === id ? { ...current, status } : current);
   }
 
   function createMockAppointment() {
@@ -1005,6 +1082,9 @@ export default function AgendaPage() {
                   <a href={`https://wa.me/55${selected.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2">
                     <MessageCircle size={17} /> WhatsApp
                   </a>
+                  <button onClick={() => moveStatus(selected.id, "Em atendimento")} className="btn-ghost inline-flex items-center gap-2"><Wrench size={17} /> Iniciar atendimento</button>
+                  <button onClick={() => moveStatus(selected.id, "Concluído")} className="btn-ghost inline-flex items-center gap-2"><CheckCircle2 size={17} /> Concluir</button>
+                  <button onClick={() => moveStatus(selected.id, "Cancelado")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Cancelar</button>
                   <button onClick={() => setModalOpen(false)} className="btn-ghost">Fechar</button>
                 </div>
               </div>
@@ -1018,6 +1098,7 @@ export default function AgendaPage() {
                     ["Data e horário", `${selected.date} • ${selected.start} às ${selected.end}`],
                     ["Técnico", selected.technician],
                     ["OS vinculada", selected.os],
+                    ["Impacto na OS", mapAgendaStatusToOrderStatus(selected.status) || "-"],
                     ["Cotação", selected.quote],
                     ["Centro de custo", selected.costCenter],
                     ["Valor previsto", currency(selected.value)],
