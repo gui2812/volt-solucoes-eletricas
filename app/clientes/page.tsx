@@ -713,6 +713,20 @@ function buildClientsFromSystem() {
 
 
 
+
+function makeDocumentEntry(title: string, url?: string) {
+  return url ? `${title}||${url}` : title;
+}
+
+function parseClientDocument(entry: string) {
+  const [title, url] = entry.split("||");
+
+  return {
+    title: title || "Documento",
+    url: url || ""
+  };
+}
+
 async function fetchSupabaseClients() {
   const response = await fetch("/api/clients", {
     cache: "no-store"
@@ -791,6 +805,7 @@ export default function ClientesPage() {
   const [draft, setDraft] = useState<Client | null>(null);
   const [documentClientId, setDocumentClientId] = useState("");
   const [documentDraft, setDocumentDraft] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [storageReady, setStorageReady] = useState(false);
   const [supabaseStatus, setSupabaseStatus] = useState("Carregando clientes...");
 
@@ -798,33 +813,36 @@ export default function ClientesPage() {
     try {
       setSupabaseStatus("Sincronizando com Supabase...");
 
-      const savedClients = readClientsFromStorage();
-      const integratedClients = buildClientsFromSystem();
       const deletedKeys = readDeletedClientKeys();
-      const localMerged = mergeClientCollections(savedClients, integratedClients)
-        .filter((client) => !isDeletedClient(client, deletedKeys));
-
-      let merged = localMerged;
 
       try {
         const supabaseClients = await fetchSupabaseClients();
+        const cleanedSupabaseClients = supabaseClients
+          .filter((client) => !isDeletedClient(client, deletedKeys));
 
-        if (supabaseClients.length) {
-          merged = mergeClientCollections(supabaseClients, localMerged)
-            .filter((client) => !isDeletedClient(client, deletedKeys));
-          setSupabaseStatus(`Supabase conectado • ${supabaseClients.length} cliente(s) no banco`);
-        } else {
-          setSupabaseStatus("Supabase conectado • banco ainda sem clientes");
-        }
+        setClients(cleanedSupabaseClients);
+        setSelected((current) => current ? cleanedSupabaseClients.find((item) => item.id === current.id) ?? cleanedSupabaseClients[0] ?? null : cleanedSupabaseClients[0] ?? null);
+        localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(cleanedSupabaseClients));
+
+        setSupabaseStatus(
+          cleanedSupabaseClients.length
+            ? `Supabase conectado • ${cleanedSupabaseClients.length} cliente(s) no banco`
+            : "Supabase conectado • banco sem clientes reais"
+        );
+
+        return;
       } catch (error) {
         setSupabaseStatus(error instanceof Error ? error.message : "Supabase indisponível, usando dados locais");
       }
 
-      setClients(merged);
-      setSelected((current) => current ? merged.find((item) => item.id === current.id) ?? merged[0] ?? null : merged[0] ?? null);
-      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(merged));
+      const savedClients = readClientsFromStorage()
+        .filter((client) => !isDeletedClient(client, deletedKeys));
+
+      setClients(savedClients);
+      setSelected((current) => current ? savedClients.find((item) => item.id === current.id) ?? savedClients[0] ?? null : savedClients[0] ?? null);
+      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(savedClients));
     } catch {
-      setClients(clientsSeed);
+      setClients([]);
       setSupabaseStatus("Não foi possível carregar clientes.");
     } finally {
       setStorageReady(true);
@@ -895,49 +913,98 @@ export default function ClientesPage() {
     setModalOpen(false);
   }
 
-  function addDocumentToClient() {
+  async function addDocumentToClient() {
     if (!documentClient) {
       alert("Selecione um cliente para adicionar documento.");
       return;
     }
 
-    const value = documentDraft.trim();
+    const title = documentDraft.trim() || documentFile?.name || "";
 
-    if (!value) {
-      alert("Digite o nome do documento, foto, laudo ou comprovante.");
+    if (!title) {
+      alert("Digite o nome do documento ou selecione um PDF/imagem.");
       return;
     }
 
-    const updatedClient: Client = {
-      ...documentClient,
-      documents: documentClient.documents.includes(value)
-        ? documentClient.documents
-        : [...documentClient.documents, value],
-      timeline: documentClient.timeline.includes(`Documento adicionado: ${value}`)
-        ? documentClient.timeline
-        : [`Documento adicionado: ${value}`, ...documentClient.timeline]
-    };
+    let documentEntry = title;
 
-    setClients((current) => current.map((client) => client.id === updatedClient.id ? updatedClient : client));
-    setSelected(updatedClient);
-    setDocumentClientId(updatedClient.id);
-    setDocumentDraft("");
+    try {
+      if (documentFile) {
+        const formData = new FormData();
+        formData.append("file", documentFile);
+        formData.append("clientId", documentClient.id);
+        formData.append("clientName", documentClient.name);
+        formData.append("title", title);
+
+        const response = await fetch("/api/client-documents", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Falha ao enviar documento.");
+        }
+
+        documentEntry = makeDocumentEntry(title, data.url);
+      }
+
+      const updatedClient: Client = {
+        ...documentClient,
+        documents: documentClient.documents.includes(documentEntry)
+          ? documentClient.documents
+          : [...documentClient.documents, documentEntry],
+        timeline: documentClient.timeline.includes(`Documento adicionado: ${title}`)
+          ? documentClient.timeline
+          : [`Documento adicionado: ${title}`, ...documentClient.timeline]
+      };
+
+      setClients((current) => {
+        const updated = current.map((client) => client.id === updatedClient.id ? updatedClient : client);
+        localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+
+      setSelected(updatedClient);
+      setDocumentClientId(updatedClient.id);
+      setDocumentDraft("");
+      setDocumentFile(null);
+
+      await saveClientToSupabase(updatedClient);
+      setSupabaseStatus(`Documento vinculado ao cliente ${updatedClient.name}`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível adicionar o documento.");
+    }
   }
 
-  function removeDocumentFromClient(client: Client, documentName: string) {
-    const confirmed = window.confirm(`Remover "${documentName}" dos documentos de ${client.name}?`);
+  async function removeDocumentFromClient(client: Client, documentName: string) {
+    const parsed = parseClientDocument(documentName);
+    const confirmed = window.confirm(`Remover "${parsed.title}" dos documentos de ${client.name}?`);
 
     if (!confirmed) return;
 
     const updatedClient: Client = {
       ...client,
       documents: client.documents.filter((item) => item !== documentName),
-      timeline: [`Documento removido: ${documentName}`, ...client.timeline]
+      timeline: [`Documento removido: ${parsed.title}`, ...client.timeline]
     };
 
-    setClients((current) => current.map((item) => item.id === updatedClient.id ? updatedClient : item));
+    setClients((current) => {
+      const updated = current.map((item) => item.id === updatedClient.id ? updatedClient : item);
+      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+
     setSelected(updatedClient);
     setDocumentClientId(updatedClient.id);
+
+    try {
+      await saveClientToSupabase(updatedClient);
+      setSupabaseStatus(`Documento removido de ${updatedClient.name}`);
+    } catch {
+      setSupabaseStatus("Documento removido localmente, mas falhou no Supabase");
+    }
   }
 
   function generateCrmReport() {
@@ -1264,6 +1331,35 @@ export default function ClientesPage() {
 
     localStorage.removeItem(DELETED_CLIENTS_STORAGE_KEY);
     syncClientsFromStorage();
+  }
+
+  async function resetClientFinancialValues() {
+    if (!window.confirm("Zerar faturamento, recebido, aberto e vencido de TODOS os clientes listados?\n\nUse isso para remover valores demo/importados incorretos.")) return;
+
+    const resetClients = clients.map((client) => ({
+      ...client,
+      totalRevenue: 0,
+      received: 0,
+      openAmount: 0,
+      overdue: 0,
+      ticketAverage: 0,
+      totalOs: 0,
+      totalQuotes: 0,
+      totalVisits: 0,
+      timeline: [`Valores financeiros zerados em ${new Date().toLocaleDateString("pt-BR")}`, ...client.timeline]
+    }));
+
+    setClients(resetClients);
+    localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(resetClients));
+
+    try {
+      await saveManyClientsToSupabase(resetClients);
+      setSupabaseStatus("Valores financeiros zerados no Supabase");
+      alert("Valores zerados no Supabase.");
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Valores zerados localmente, mas falhou no Supabase");
+      alert("Zerei localmente, mas não consegui enviar para o Supabase.");
+    }
   }
 
   async function migrateClientsToSupabase() {
@@ -1638,33 +1734,52 @@ export default function ClientesPage() {
 
                   <div className="rounded-2xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
                     <p className="text-sm font-black text-volt-yellow">Adicionar documento</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                    <div className="mt-3 grid gap-3">
                       <input
                         value={documentDraft}
                         onChange={(event) => setDocumentDraft(event.target.value)}
-                        placeholder="Ex: Foto antes/depois, relatório técnico, comprovante Pix, laudo, checklist..."
+                        placeholder="Nome do documento. Ex: Relatório técnico, comprovante Pix, laudo..."
                         className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none placeholder:text-zinc-600"
                       />
-                      <button onClick={addDocumentToClient} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Adicionar</button>
+
+                      <label className="rounded-2xl border border-dashed border-volt-yellow/30 bg-black/35 p-4 text-sm font-bold text-zinc-300">
+                        <span className="block text-volt-yellow">Selecionar PDF, imagem ou arquivo</span>
+                        <input
+                          type="file"
+                          accept=".pdf,image/*,.doc,.docx,.xls,.xlsx"
+                          onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
+                          className="mt-3 block w-full text-xs text-zinc-400"
+                        />
+                        {documentFile && <span className="mt-2 block text-xs text-zinc-500">Arquivo selecionado: {documentFile.name}</span>}
+                      </label>
+
+                      <button onClick={addDocumentToClient} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Adicionar documento</button>
                     </div>
                     <p className="mt-2 text-xs leading-5 text-zinc-500">
-                      Nesta versão fica salvo como registro/descrição. Depois podemos evoluir para upload real de arquivo, imagem e PDF no Supabase Storage.
+                      Agora o arquivo é enviado para o Supabase Storage e fica vinculado ao cliente.
                     </p>
                   </div>
 
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    {documentClient.documents.map((doc) => (
-                      <article key={`${documentClient.id}-${doc}`} className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
-                        <FolderOpen className="mb-5 text-volt-yellow" size={30} />
-                        <h3 className="text-xl font-black">{doc}</h3>
-                        <p className="mt-2 text-sm text-zinc-500">{documentClient.name}</p>
-                        <p className="mt-4 text-sm leading-6 text-zinc-400">Documento vinculado ao cliente. Use para controlar fotos, laudos, comprovantes e relatórios.</p>
-                        <div className="mt-5 flex gap-2">
-                          <button onClick={() => setDocumentDraft(doc)} className="btn-ghost flex-1">Usar como base</button>
-                          <button onClick={() => removeDocumentFromClient(documentClient, doc)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Remover</button>
-                        </div>
-                      </article>
-                    ))}
+                    {documentClient.documents.map((doc) => {
+                      const parsedDoc = parseClientDocument(doc);
+
+                      return (
+                        <article key={`${documentClient.id}-${doc}`} className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+                          <FolderOpen className="mb-5 text-volt-yellow" size={30} />
+                          <h3 className="text-xl font-black">{parsedDoc.title}</h3>
+                          <p className="mt-2 text-sm text-zinc-500">{documentClient.name}</p>
+                          <p className="mt-4 text-sm leading-6 text-zinc-400">Documento vinculado ao cliente. Use para controlar fotos, laudos, comprovantes e relatórios.</p>
+                          <div className="mt-5 flex flex-wrap gap-2">
+                            {parsedDoc.url && (
+                              <a href={parsedDoc.url} target="_blank" rel="noreferrer" className="btn-primary flex-1 text-center">Abrir arquivo</a>
+                            )}
+                            <button onClick={() => setDocumentDraft(parsedDoc.title)} className="btn-ghost flex-1">Usar como base</button>
+                            <button onClick={() => removeDocumentFromClient(documentClient, doc)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Remover</button>
+                          </div>
+                        </article>
+                      );
+                    })}
 
                     {documentClient.documents.length === 0 && (
                       <div className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5 text-sm font-bold leading-7 text-zinc-400 md:col-span-2">
