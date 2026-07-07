@@ -9,9 +9,10 @@ export type OrcamentoPdfItem = {
 
 export type OrcamentoPdfSignature = {
   signerName?: string;
-  mode?: "Pendente" | "Rubrica predefinida" | "Assinatura livre";
+  mode?: "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
   signedAt?: string;
   signatureDataUrl?: string;
+  signatureStyle?: "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
 };
 
 export type OrcamentoPdfData = {
@@ -74,10 +75,19 @@ function rowTotal(item: OrcamentoPdfItem) {
   return typeof item.total === "number" ? item.total : Number(item.quantity || 0) * Number(item.unitPrice || 0);
 }
 
+function signatureClass(style?: string) {
+  if (style === "Elegante") return "signature-script elegant";
+  if (style === "Moderna") return "signature-script modern";
+  if (style === "Rubrica rápida") return "signature-script quick";
+  if (style === "Formal") return "signature-script formal";
+  return "signature-script classic";
+}
+
 function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackName: string, isClient = false) {
   const name = safe(signature?.signerName || fallbackName);
   const mode = signature?.mode || "Pendente";
   const signedAt = signature?.signedAt ? formatDate(signature.signedAt) : "";
+  const style = signature?.signatureStyle || "Clássica";
 
   if (signature?.signatureDataUrl) {
     return `
@@ -93,11 +103,26 @@ function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackN
   if (mode === "Rubrica predefinida") {
     return `
       <div class="signature-visual">
-        <div class="signature-script">${name}</div>
+        <div class="${signatureClass(style)}">${name}</div>
       </div>
       <div class="signature-line"></div>
       <div class="signature-name">${name}</div>
-      <div class="signature-doc">Rubrica predefinida${signedAt ? ` em ${signedAt}` : ""}</div>
+      <div class="signature-doc">${style} • rubrica predefinida${signedAt ? ` em ${signedAt}` : ""}</div>
+    `;
+  }
+
+  if (mode === "Nome digitado + aceite") {
+    return `
+      <div class="signature-visual pending">
+        <div>
+          <div class="pending-icon">✓</div>
+          <strong>${name}</strong>
+          <span>Nome digitado + aceite eletrônico${signedAt ? ` em ${signedAt}` : ""}</span>
+        </div>
+      </div>
+      <div class="signature-line"></div>
+      <div class="signature-name">${name}</div>
+      <div class="signature-doc">Aceite eletrônico registrado</div>
     `;
   }
 
@@ -758,11 +783,43 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     }
 
     .signature-script {
-      font-family: "Brush Script MT", "Segoe Script", cursive;
-      font-size: 11mm;
       line-height: 1;
       color: #fff;
       transform: rotate(-2deg);
+    }
+
+    .signature-script.classic {
+      font-family: "Brush Script MT", "Segoe Script", cursive;
+      font-size: 11mm;
+    }
+
+    .signature-script.elegant {
+      font-family: "Brush Script MT", "Segoe Script", cursive;
+      font-size: 12mm;
+      letter-spacing: .6mm;
+    }
+
+    .signature-script.modern {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 6.2mm;
+      font-weight: 300;
+      letter-spacing: 1.7mm;
+      text-transform: uppercase;
+      transform: rotate(0deg);
+    }
+
+    .signature-script.quick {
+      font-family: "Brush Script MT", "Segoe Script", cursive;
+      font-size: 10.5mm;
+      transform: skewX(-9deg) rotate(-3deg);
+    }
+
+    .signature-script.formal {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 7.8mm;
+      font-weight: 700;
+      letter-spacing: .5mm;
+      transform: rotate(0deg);
     }
 
     .signature-visual.pending {
