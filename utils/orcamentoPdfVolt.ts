@@ -86,7 +86,7 @@ function signatureClass(style?: string) {
   return "signature-script classic";
 }
 
-function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackName: string, isClient = false) {
+function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackName: string, isClient = false, signingUrl?: string) {
   const name = safe(signature?.signerName || fallbackName);
   const mode = signature?.mode || "Pendente";
   const signedAt = signature?.signedAt ? formatDate(signature.signedAt) : "";
@@ -129,12 +129,17 @@ function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackN
     `;
   }
 
+  const actionButton = isClient && signingUrl
+    ? `<a class="signature-action" href="${signingUrl}" target="_blank" rel="noreferrer">Aprovar e assinar agora</a>`
+    : "";
+
   return `
     <div class="signature-visual pending">
       <div>
         <div class="pending-icon">✍</div>
         <strong>${isClient ? "Assinatura do cliente pendente" : "Assinatura pendente"}</strong>
-        <span>Assinar pelo celular, tablet ou computador</span>
+        <span>${isClient && signingUrl ? "Clique no botão abaixo, abra o link ou escaneie o QR Code" : "Assinar pelo celular, tablet ou computador"}</span>
+        ${actionButton}
       </div>
     </div>
     <div class="signature-line"></div>
@@ -809,6 +814,26 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       padding: 1.5mm;
     }
 
+
+    .signature-action {
+      display: inline-block;
+      margin-top: 3mm;
+      border-radius: 2mm;
+      background: #ffcb2f;
+      color: #050505;
+      padding: 2.4mm 4.5mm;
+      font-size: 3mm;
+      font-weight: 950;
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: .7px;
+      box-shadow: 0 0 14px rgba(255, 203, 47, .22);
+    }
+
+    .signature-action:hover {
+      filter: brightness(1.05);
+    }
+
     .signature-message {
       margin-top: 5mm;
       display: flex;
@@ -1195,7 +1220,7 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 
         <div class="signature-box client">
           <div class="signature-title">👤 Cliente</div>
-          ${signatureVisual(data.clientSignature, data.clientName || "Cliente", true)}
+          ${signatureVisual(data.clientSignature, data.clientName || "Cliente", true, data.signingUrl)}
         </div>
       </section>
     </div>
