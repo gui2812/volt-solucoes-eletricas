@@ -103,23 +103,6 @@ export async function checkRemoteSignatureStatus(quoteId: string) {
   return data as RemoteSignatureCheckResult;
 }
 
-export function makeSignatureWhatsAppLink(phone: string | undefined, signingUrl: string, quoteId: string) {
-  const digits = String(phone || "").replace(/\D/g, "");
-  const phoneNumber = digits.startsWith("55") ? digits : `55${digits}`;
-
-  const message = [
-    "Olá! Segue o link do seu orçamento da Volt Soluções Elétricas para análise e assinatura digital:",
-    "",
-    `Orçamento: ${quoteId}`,
-    signingUrl,
-    "",
-    "Você não precisa acessar nenhum sistema. É só abrir o link pelo celular, conferir o orçamento e assinar com o dedo ou escolher uma rubrica."
-  ].join("\n");
-
-  return `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-}
-
-
 export async function sendSignatureEmail({
   to,
   clientName,
@@ -138,7 +121,11 @@ export async function sendSignatureEmail({
   validUntil: string;
 }) {
   if (!to?.trim()) {
-    return { ok: false, skipped: true, reason: "Cliente sem e-mail cadastrado." };
+    return {
+      ok: false,
+      skipped: true,
+      reason: "Cliente sem e-mail cadastrado."
+    };
   }
 
   const response = await fetch("/api/signature/email/send", {
@@ -167,4 +154,20 @@ export async function sendSignatureEmail({
     ok: boolean;
     id?: string;
   };
+}
+
+export function makeSignatureWhatsAppLink(phone: string | undefined, signingUrl: string, quoteId: string) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  const phoneNumber = digits.startsWith("55") ? digits : `55${digits}`;
+
+  const message = [
+    "Olá! Segue o link do seu orçamento da Volt Soluções Elétricas para análise e assinatura digital:",
+    "",
+    `Orçamento: ${quoteId}`,
+    signingUrl,
+    "",
+    "Você não precisa acessar nenhum sistema. É só abrir o link pelo celular, conferir o orçamento e assinar com o dedo ou escolher uma rubrica."
+  ].join("\n");
+
+  return `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
 }
