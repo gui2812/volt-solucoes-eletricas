@@ -29,7 +29,18 @@ export type RemoteSignatureQuoteSnapshot = {
   items: RemoteSignatureQuoteItem[];
 };
 
-export type RemoteSignatureStyle = "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
+export type RemoteSignatureMode =
+  | "Pendente"
+  | "Assinatura livre"
+  | "Rubrica predefinida"
+  | "Nome digitado + aceite";
+
+export type RemoteSignatureStyle =
+  | "Clássica"
+  | "Elegante"
+  | "Moderna"
+  | "Rubrica rápida"
+  | "Formal";
 
 export type RemoteSignatureCheckResult = {
   found: boolean;
@@ -40,7 +51,7 @@ export type RemoteSignatureCheckResult = {
   expiresAt?: string;
   clientSignature?: {
     signerName?: string;
-    mode?: "Pendente" | "Rubrica predefinida" | "Assinatura livre" | "Nome digitado + aceite";
+    mode?: RemoteSignatureMode;
     signedAt?: string;
     signatureDataUrl?: string;
     signatureStyle?: RemoteSignatureStyle;
