@@ -117,6 +117,23 @@ function compareAppointmentDate(a: Appointment, b: Appointment) {
   return left.localeCompare(right);
 }
 
+function monthOffsetFromDate(dateText: string) {
+  const target = new Date(`${dateText}T12:00:00`);
+  const today = new Date();
+
+  if (Number.isNaN(target.getTime())) return 0;
+
+  return (target.getFullYear() - today.getFullYear()) * 12 + (target.getMonth() - today.getMonth());
+}
+
+function appointmentMonthLabel(dateText: string) {
+  const target = new Date(`${dateText}T12:00:00`);
+
+  if (Number.isNaN(target.getTime())) return "Data inválida";
+
+  return formatMonthTitle(target);
+}
+
 const appointmentsSeed: Appointment[] = [
   {
     id: "AG-001",
@@ -645,6 +662,7 @@ export default function AgendaPage() {
     });
 
     setSelected(next);
+    setActiveTab("Visão Geral");
     setModalOpen(true);
     setEditOpen(false);
     setDraft(null);
@@ -705,6 +723,11 @@ export default function AgendaPage() {
     window.print();
   }
 
+  function goToAppointmentMonth(dateText: string) {
+    setMonthOffset(monthOffsetFromDate(dateText));
+    setActiveTab("Calendário");
+  }
+
   const tabs = ["Visão Geral", "Calendário", "Lista", "Kanban", "Técnicos", "Recorrências", "Alertas", "Relatórios"];
 
   const calendarMonth = getCalendarMonth(monthOffset);
@@ -714,14 +737,30 @@ export default function AgendaPage() {
     items: filtered.filter((item) => item.date === day.date)
   }));
 
-  const upcomingAppointments = [...filtered]
-    .filter((item) => item.date >= currentToday || !["Concluído", "Cancelado"].includes(item.status))
-    .sort((a, b) => {
-      if (a.priority === "Urgente" && b.priority !== "Urgente") return -1;
-      if (b.priority === "Urgente" && a.priority !== "Urgente") return 1;
+  const priorityWeight: Record<Priority, number> = {
+    Urgente: 0,
+    Alta: 1,
+    Média: 2,
+    Baixa: 3
+  };
 
-      return compareAppointmentDate(a, b);
+  const overviewAppointments = [...filtered]
+    .sort((a, b) => {
+      const aIsCurrentOrFuture = a.date >= currentToday;
+      const bIsCurrentOrFuture = b.date >= currentToday;
+
+      if (aIsCurrentOrFuture !== bIsCurrentOrFuture) return aIsCurrentOrFuture ? -1 : 1;
+
+      const dateCompare = compareAppointmentDate(a, b);
+      if (dateCompare !== 0) return dateCompare;
+
+      return priorityWeight[a.priority] - priorityWeight[b.priority];
     });
+
+  const calendarDateSet = new Set(calendarDays.map((day) => day.date));
+  const outsideCalendarAppointments = filtered
+    .filter((item) => !calendarDateSet.has(item.date))
+    .sort((a, b) => compareAppointmentDate(a, b));
 
   return (
     <AppShell>
@@ -836,8 +875,8 @@ export default function AgendaPage() {
               </div>
 
               <div className="space-y-3">
-                {upcomingAppointments
-                  .slice(0, 8)
+                {overviewAppointments
+                  .slice(0, 10)
                   .map((item) => (
                     <button
                       key={item.id}
@@ -864,10 +903,45 @@ export default function AgendaPage() {
                       </div>
                     </button>
                   ))}
+
+                {overviewAppointments.length === 0 && (
+                  <div className="rounded-3xl border border-white/10 bg-white/[.035] p-5 text-sm font-bold text-zinc-400">
+                    Nenhum compromisso encontrado na visão geral. Confira se não há filtros ativos.
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="space-y-5">
+              <div className="card-premium rounded-[2rem] p-5 md:p-6">
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Últimos compromissos cadastrados</p>
+                <h2 className="mt-1 text-2xl font-black">Atualizações da agenda</h2>
+                <div className="mt-5 space-y-3">
+                  {[...filtered].reverse().slice(0, 4).map((item) => (
+                    <button
+                      key={`${item.id}-recent`}
+                      onClick={() => {
+                        setSelected(item);
+                        setModalOpen(true);
+                      }}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[.035] p-3 text-left hover:border-volt-yellow/30"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black">{item.client || item.title}</p>
+                          <p className="mt-1 text-xs text-zinc-500">{item.date} • {item.start} • {item.status}</p>
+                        </div>
+                        <Badge className={priorityColors[item.priority]}>{item.priority}</Badge>
+                      </div>
+                    </button>
+                  ))}
+
+                  {filtered.length === 0 && (
+                    <p className="rounded-2xl border border-white/10 bg-black/35 p-3 text-sm font-bold text-zinc-500">Sem atualizações para exibir.</p>
+                  )}
+                </div>
+              </div>
+
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Técnicos</p>
                 <h2 className="mt-1 text-2xl font-black">Equipe em campo</h2>
@@ -958,6 +1032,29 @@ export default function AgendaPage() {
                 </div>
               ))}
             </div>
+
+            {outsideCalendarAppointments.length > 0 && (
+              <div className="mt-5 rounded-[2rem] border border-volt-yellow/20 bg-volt-yellow/10 p-4">
+                <p className="text-sm font-black uppercase tracking-[.18em] text-volt-yellow">Fora deste mês</p>
+                <p className="mt-2 text-sm leading-6 text-zinc-300">
+                  Existem compromissos cadastrados em outros meses. Clique para abrir o mês correto no calendário.
+                </p>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {outsideCalendarAppointments.slice(0, 9).map((item) => (
+                    <button
+                      key={`${item.id}-outside-month`}
+                      onClick={() => goToAppointmentMonth(item.date)}
+                      className="rounded-2xl border border-white/10 bg-black/35 p-3 text-left transition hover:border-volt-yellow/30"
+                    >
+                      <p className="text-sm font-black">{item.client || item.title}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{appointmentMonthLabel(item.date)} • {item.date} • {item.start}</p>
+                      <p className="mt-2 text-xs font-black text-volt-yellow">Abrir mês no calendário</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
         )}
 
