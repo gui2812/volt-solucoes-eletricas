@@ -410,11 +410,13 @@ export default function OrdensPage() {
     window.addEventListener("storage", syncOrdersFromStorage);
     window.addEventListener("volt:ordem-criada", syncOrdersFromStorage);
     window.addEventListener("volt:ordem-atualizada-por-agenda", syncOrdersFromStorage);
+    window.addEventListener("volt:ordem-pagamento-atualizado", syncOrdersFromStorage);
 
     return () => {
       window.removeEventListener("storage", syncOrdersFromStorage);
       window.removeEventListener("volt:ordem-criada", syncOrdersFromStorage);
       window.removeEventListener("volt:ordem-atualizada-por-agenda", syncOrdersFromStorage);
+      window.removeEventListener("volt:ordem-pagamento-atualizado", syncOrdersFromStorage);
     };
   }, []);
 
