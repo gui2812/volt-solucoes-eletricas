@@ -73,168 +73,7 @@ type FinancialGoal = {
   notes: string;
 };
 
-const transactionsSeed: Transaction[] = [
-  {
-    id: "FIN-001",
-    type: "Receita",
-    title: "OS-1042 Organização de QDC",
-    clientSupplier: "Condomínio JK 1455",
-    costCenter: "Serviços técnicos",
-    category: "Quadros/QDC",
-    budgeted: 1850,
-    actual: 1850,
-    competenceDate: "2026-06-25",
-    dueDate: "2026-06-28",
-    paymentDate: "2026-06-25",
-    status: "Recebido",
-    paymentMethod: "Pix",
-    serviceOrder: "OS-1042",
-    quote: "COT-221",
-    recurrence: "Única",
-    responsible: "Guilherme Santana",
-    notes: "Receita vinculada à OS de organização de quadro elétrico."
-  },
-  {
-    id: "FIN-002",
-    type: "Receita",
-    title: "Circuito dedicado micro-ondas",
-    clientSupplier: "Cliente residencial",
-    costCenter: "Serviços técnicos",
-    category: "Circuito dedicado",
-    budgeted: 420,
-    actual: 0,
-    competenceDate: "2026-06-26",
-    dueDate: "2026-06-29",
-    paymentDate: "",
-    status: "Aberto",
-    paymentMethod: "Pix",
-    serviceOrder: "OS-1043",
-    quote: "COT-224",
-    recurrence: "Única",
-    responsible: "Guilherme Santana",
-    notes: "Aguardando execução e recebimento."
-  },
-  {
-    id: "FIN-003",
-    type: "Despesa",
-    title: "Compra de disjuntores e barramentos",
-    clientSupplier: "Fornecedor elétrico",
-    costCenter: "Materiais elétricos",
-    category: "Materiais",
-    budgeted: 900,
-    actual: 1040,
-    competenceDate: "2026-06-20",
-    dueDate: "2026-06-20",
-    paymentDate: "2026-06-20",
-    status: "Pago",
-    paymentMethod: "Cartão",
-    serviceOrder: "OS-1042",
-    quote: "Sem cotação",
-    recurrence: "Única",
-    responsible: "Guilherme Santana",
-    notes: "Compra acima do previsto por inclusão de barramento extra."
-  },
-  {
-    id: "FIN-004",
-    type: "Conta a pagar",
-    title: "Combustível e deslocamento",
-    clientSupplier: "Posto",
-    costCenter: "Transporte",
-    category: "Combustível",
-    budgeted: 450,
-    actual: 380,
-    competenceDate: "2026-06-22",
-    dueDate: "2026-06-30",
-    paymentDate: "",
-    status: "Aberto",
-    paymentMethod: "Cartão",
-    serviceOrder: "Operação",
-    quote: "Sem cotação",
-    recurrence: "Mensal",
-    responsible: "Guilherme Santana",
-    notes: "Custos de deslocamento de atendimentos."
-  },
-  {
-    id: "FIN-005",
-    type: "Conta a receber",
-    title: "Automação iluminação sala comercial",
-    clientSupplier: "Sala Comercial Vikings",
-    costCenter: "Comercial",
-    category: "Automação",
-    budgeted: 1600,
-    actual: 0,
-    competenceDate: "2026-06-28",
-    dueDate: "2026-07-05",
-    paymentDate: "",
-    status: "Aberto",
-    paymentMethod: "Transferência",
-    serviceOrder: "OS-1045",
-    quote: "COT-230",
-    recurrence: "Única",
-    responsible: "Guilherme Santana",
-    notes: "Receita prevista para automação residencial/comercial."
-  },
-  {
-    id: "FIN-006",
-    type: "Despesa",
-    title: "Ferramentas e EPI",
-    clientSupplier: "Fornecedor ferramentas",
-    costCenter: "Ferramentas e EPI",
-    category: "Ferramentas",
-    budgeted: 700,
-    actual: 820,
-    competenceDate: "2026-06-12",
-    dueDate: "2026-06-12",
-    paymentDate: "2026-06-12",
-    status: "Pago",
-    paymentMethod: "Pix",
-    serviceOrder: "Estoque",
-    quote: "Sem cotação",
-    recurrence: "Única",
-    responsible: "Guilherme Santana",
-    notes: "Reposição para equipe técnica."
-  },
-  {
-    id: "FIN-007",
-    type: "Receita",
-    title: "Manutenção iluminação LED",
-    clientSupplier: "Escritório corporativo",
-    costCenter: "Serviços técnicos",
-    category: "Iluminação",
-    budgeted: 690,
-    actual: 690,
-    competenceDate: "2026-06-24",
-    dueDate: "2026-06-24",
-    paymentDate: "2026-06-24",
-    status: "Recebido",
-    paymentMethod: "Pix",
-    serviceOrder: "OS-1035",
-    quote: "COT-190",
-    recurrence: "Única",
-    responsible: "Guilherme Santana",
-    notes: "Serviço finalizado e recebido."
-  },
-  {
-    id: "FIN-008",
-    type: "Conta a receber",
-    title: "Adequação DR/DPS residencial",
-    clientSupplier: "Cliente residencial",
-    costCenter: "Serviços técnicos",
-    category: "Proteção elétrica",
-    budgeted: 2300,
-    actual: 0,
-    competenceDate: "2026-06-18",
-    dueDate: "2026-06-21",
-    paymentDate: "",
-    status: "Vencido",
-    paymentMethod: "Boleto",
-    serviceOrder: "OS-1039",
-    quote: "COT-210",
-    recurrence: "Única",
-    responsible: "Guilherme Santana",
-    notes: "Cliente com vencimento em aberto."
-  }
-];
+const transactionsSeed: Transaction[] = [];
 
 const costCentersSeed: CostCenter[] = [
   { code: "CC-001", name: "Materiais elétricos", type: "Operacional", responsible: "Guilherme", monthlyBudget: 3200, annualBudget: 38400, monthlyActual: 2860, annualActual: 14900, notes: "Cabos, disjuntores, tomadas, DR, DPS e quadros." },
@@ -253,44 +92,7 @@ const monthlyData = [
   { month: "Jun", receita: 18450, despesa: 7240, lucro: 11210, orcado: 25000 }
 ];
 
-const goalsSeed: FinancialGoal[] = [
-  {
-    id: "META-001",
-    title: "Meta mensal de faturamento",
-    period: "Mensal",
-    category: "Faturamento",
-    target: 25000,
-    actual: 18450,
-    notes: "Meta principal de receita mensal."
-  },
-  {
-    id: "META-002",
-    title: "Meta mensal de lucro",
-    period: "Mensal",
-    category: "Lucro",
-    target: 14000,
-    actual: 11210,
-    notes: "Meta de margem/lucro mensal."
-  },
-  {
-    id: "META-003",
-    title: "Meta anual de faturamento",
-    period: "Anual",
-    category: "Faturamento",
-    target: 220000,
-    actual: 70050,
-    notes: "Meta de faturamento acumulado no ano."
-  },
-  {
-    id: "META-004",
-    title: "Limite mensal de despesas",
-    period: "Mensal",
-    category: "Despesa",
-    target: 9000,
-    actual: 7240,
-    notes: "Controle de teto mensal para custos e despesas."
-  }
-];
+const goalsSeed: FinancialGoal[] = [];
 
 const tabs = [
   "Visão Geral",
@@ -551,7 +353,7 @@ function readFinanceFromStorage() {
   const saved = localStorage.getItem(FINANCE_STORAGE_KEY);
   const parsed = saved ? JSON.parse(saved) : null;
 
-  return Array.isArray(parsed) ? parsed as Transaction[] : transactionsSeed;
+  return Array.isArray(parsed) ? parsed as Transaction[] : [];
 }
 
 function readFinanceQueue() {
@@ -615,7 +417,7 @@ function readGoalsFromStorage() {
   const saved = localStorage.getItem(GOALS_STORAGE_KEY);
   const parsed = saved ? JSON.parse(saved) : null;
 
-  return Array.isArray(parsed) ? parsed as FinancialGoal[] : goalsSeed;
+  return Array.isArray(parsed) ? parsed as FinancialGoal[] : [];
 }
 
 function makeEmptyTransaction(type: TransactionType, count: number): Transaction {
@@ -658,43 +460,204 @@ function makeEmptyGoal(count: number): FinancialGoal {
 }
 
 
+
+async function fetchSupabaseTransactions() {
+  const response = await fetch("/api/finance/transactions", {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível carregar lançamentos do Supabase.");
+  }
+
+  const data = await response.json();
+
+  return Array.isArray(data.transactions) ? data.transactions as Transaction[] : [];
+}
+
+async function saveTransactionToSupabase(transaction: Transaction) {
+  const response = await fetch("/api/finance/transactions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ transaction })
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível salvar lançamento no Supabase.");
+  }
+
+  const data = await response.json();
+
+  return data.transaction as Transaction;
+}
+
+async function saveManyTransactionsToSupabase(transactions: Transaction[]) {
+  const response = await fetch("/api/finance/transactions", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ transactions })
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível migrar lançamentos para o Supabase.");
+  }
+
+  const data = await response.json();
+
+  return Array.isArray(data.transactions) ? data.transactions as Transaction[] : [];
+}
+
+async function deleteTransactionFromSupabase(transaction: Transaction) {
+  const response = await fetch(`/api/finance/transactions?legacyId=${encodeURIComponent(transaction.id)}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível excluir lançamento no Supabase.");
+  }
+}
+
+async function clearTransactionsFromSupabase() {
+  const response = await fetch("/api/finance/transactions?all=true", {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível limpar lançamentos no Supabase.");
+  }
+}
+
+async function fetchSupabaseGoals() {
+  const response = await fetch("/api/finance/goals", {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível carregar metas do Supabase.");
+  }
+
+  const data = await response.json();
+
+  return Array.isArray(data.goals) ? data.goals as FinancialGoal[] : [];
+}
+
+async function saveGoalToSupabase(goal: FinancialGoal) {
+  const response = await fetch("/api/finance/goals", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ goal })
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível salvar meta no Supabase.");
+  }
+
+  const data = await response.json();
+
+  return data.goal as FinancialGoal;
+}
+
+async function deleteGoalFromSupabase(goal: FinancialGoal) {
+  const response = await fetch(`/api/finance/goals?legacyId=${encodeURIComponent(goal.id)}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível excluir meta no Supabase.");
+  }
+}
+
+
 export default function FinanceiroPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>(transactionsSeed);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [activeTab, setActiveTab] = useState("Visão Geral");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("Todos");
   const [statusFilter, setStatusFilter] = useState("Todos");
-  const [selected, setSelected] = useState<Transaction | null>(transactionsSeed[0]);
+  const [selected, setSelected] = useState<Transaction | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [transactionEditOpen, setTransactionEditOpen] = useState(false);
   const [transactionDraft, setTransactionDraft] = useState<Transaction | null>(null);
-  const [goals, setGoals] = useState<FinancialGoal[]>(goalsSeed);
+  const [goals, setGoals] = useState<FinancialGoal[]>([]);
   const [goalEditOpen, setGoalEditOpen] = useState(false);
   const [goalDraft, setGoalDraft] = useState<FinancialGoal | null>(null);
   const [storageReady, setStorageReady] = useState(false);
+  const [supabaseStatus, setSupabaseStatus] = useState("Carregando financeiro real...");
 
-  useEffect(() => {
-    function syncFinanceFromStorage() {
+  async function syncFinanceFromStorage() {
+    try {
+      setSupabaseStatus("Sincronizando financeiro com Supabase...");
+
+      const queuedTransactions = readFinanceQueue();
+
       try {
-        const savedTransactions = readFinanceFromStorage();
-        const queuedTransactions = readFinanceQueue();
-        const merged = mergeTransactions(savedTransactions, queuedTransactions);
-
-        setTransactions(merged);
-        setSelected(merged[0] ?? null);
-        localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(merged));
-
         if (queuedTransactions.length) {
+          await saveManyTransactionsToSupabase(queuedTransactions);
           localStorage.removeItem(FINANCE_QUEUE_KEY);
         }
-      } catch {
-        setTransactions(transactionsSeed);
-      } finally {
-        setStorageReady(true);
-      }
-    }
 
+        const supabaseTransactions = await fetchSupabaseTransactions();
+
+        setTransactions(supabaseTransactions);
+        setSelected((current) => current ? supabaseTransactions.find((item) => item.id === current.id) ?? supabaseTransactions[0] ?? null : supabaseTransactions[0] ?? null);
+        localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(supabaseTransactions));
+        setSupabaseStatus(
+          supabaseTransactions.length
+            ? `Supabase conectado • ${supabaseTransactions.length} lançamento(s) real(is)`
+            : "Supabase conectado • financeiro sem lançamentos reais"
+        );
+        return;
+      } catch (error) {
+        setSupabaseStatus(error instanceof Error ? error.message : "Supabase indisponível, usando dados locais");
+      }
+
+      const savedTransactions = readFinanceFromStorage();
+      const merged = mergeTransactions(savedTransactions, queuedTransactions);
+
+      setTransactions(merged);
+      setSelected(merged[0] ?? null);
+      localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(merged));
+
+      if (queuedTransactions.length) {
+        localStorage.removeItem(FINANCE_QUEUE_KEY);
+      }
+    } catch {
+      setTransactions([]);
+      setSelected(null);
+      setSupabaseStatus("Não foi possível carregar o financeiro.");
+    } finally {
+      setStorageReady(true);
+    }
+  }
+
+  async function syncGoalsFromStorage() {
+    try {
+      const supabaseGoals = await fetchSupabaseGoals();
+
+      setGoals(supabaseGoals);
+      localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(supabaseGoals));
+    } catch {
+      setGoals(readGoalsFromStorage());
+    }
+  }
+
+  useEffect(() => {
     syncFinanceFromStorage();
+    syncGoalsFromStorage();
 
     window.addEventListener("storage", syncFinanceFromStorage);
     window.addEventListener("volt:financeiro-lancamento-criado", syncFinanceFromStorage);
@@ -711,33 +674,14 @@ export default function FinanceiroPage() {
   }, [storageReady, transactions]);
 
   useEffect(() => {
-    try {
-      setGoals(readGoalsFromStorage());
-    } catch {
-      setGoals(goalsSeed);
-    }
-  }, []);
-
-  useEffect(() => {
     if (!storageReady) return;
     localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(goals));
   }, [storageReady, goals]);
 
-  function forceSyncFinance() {
-    try {
-      const savedTransactions = readFinanceFromStorage();
-      const queuedTransactions = readFinanceQueue();
-      const merged = mergeTransactions(savedTransactions, queuedTransactions);
-
-      setTransactions(merged);
-      setSelected(merged[0] ?? null);
-      localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(merged));
-      localStorage.removeItem(FINANCE_QUEUE_KEY);
-
-      alert("Financeiro atualizado.");
-    } catch {
-      alert("Não foi possível atualizar o financeiro agora.");
-    }
+  async function forceSyncFinance() {
+    await syncFinanceFromStorage();
+    await syncGoalsFromStorage();
+    alert("Financeiro atualizado com dados reais.");
   }
 
   const filtered = useMemo(() => {
@@ -888,7 +832,7 @@ export default function FinanceiroPage() {
     setTransactionEditOpen(true);
   }
 
-  function saveTransaction() {
+  async function saveTransaction() {
     if (!transactionDraft) return;
 
     const next: Transaction = {
@@ -905,19 +849,29 @@ export default function FinanceiroPage() {
 
     setTransactions((current) => {
       const exists = current.some((item) => item.id === next.id);
-
-      return exists
+      const updated = exists
         ? current.map((item) => item.id === next.id ? next : item)
         : [next, ...current];
+
+      localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
     });
 
     setSelected(next);
     setModalOpen(true);
     setTransactionEditOpen(false);
     setTransactionDraft(null);
+
+    try {
+      await saveTransactionToSupabase(next);
+      setSupabaseStatus(`Lançamento ${next.id} salvo no Supabase`);
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Lançamento salvo localmente, mas falhou no Supabase");
+      alert("Lançamento salvo localmente, mas não consegui salvar no Supabase.");
+    }
   }
 
-  function removeTransaction(transaction: Transaction) {
+  async function removeTransaction(transaction: Transaction) {
     if (!window.confirm(`Excluir o lançamento "${transaction.title}"?\n\nIsso remove o lançamento da lista, do centro de custo, do orçado x realizado e do fluxo de caixa.`)) return;
 
     setTransactions((current) => {
@@ -928,9 +882,16 @@ export default function FinanceiroPage() {
 
     setSelected((current) => current?.id === transaction.id ? null : current);
     setModalOpen(false);
+
+    try {
+      await deleteTransactionFromSupabase(transaction);
+      setSupabaseStatus(`Lançamento ${transaction.id} excluído do Supabase`);
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Lançamento removido localmente, mas falhou no Supabase");
+    }
   }
 
-  function clearAllTransactions() {
+  async function clearAllTransactions() {
     if (!window.confirm("Apagar TODOS os lançamentos financeiros?\n\nCentro de custo, orçado x realizado e fluxo de caixa serão zerados.")) return;
 
     setTransactions([]);
@@ -938,6 +899,13 @@ export default function FinanceiroPage() {
     setModalOpen(false);
     localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify([]));
     localStorage.removeItem(FINANCE_QUEUE_KEY);
+
+    try {
+      await clearTransactionsFromSupabase();
+      setSupabaseStatus("Todos os lançamentos foram apagados do Supabase");
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Financeiro zerado localmente, mas falhou no Supabase");
+    }
 
     alert("Financeiro zerado. Os gráficos e centros de custo agora ficam vazios até novos lançamentos serem cadastrados.");
   }
@@ -954,7 +922,7 @@ export default function FinanceiroPage() {
     setGoalEditOpen(true);
   }
 
-  function saveGoal() {
+  async function saveGoal() {
     if (!goalDraft) return;
 
     const next: FinancialGoal = {
@@ -967,23 +935,43 @@ export default function FinanceiroPage() {
 
     setGoals((current) => {
       const exists = current.some((item) => item.id === next.id);
-
-      return exists
+      const updated = exists
         ? current.map((item) => item.id === next.id ? next : item)
         : [next, ...current];
+
+      localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
     });
 
     setGoalEditOpen(false);
     setGoalDraft(null);
+
+    try {
+      await saveGoalToSupabase(next);
+      setSupabaseStatus(`Meta ${next.title} salva no Supabase`);
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Meta salva localmente, mas falhou no Supabase");
+    }
   }
 
-  function removeGoal(goal: FinancialGoal) {
+  async function removeGoal(goal: FinancialGoal) {
     if (!window.confirm("Excluir esta meta financeira?")) return;
 
-    setGoals((current) => current.filter((item) => item.id !== goal.id));
+    setGoals((current) => {
+      const updated = current.filter((item) => item.id !== goal.id);
+      localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      await deleteGoalFromSupabase(goal);
+      setSupabaseStatus(`Meta ${goal.title} excluída do Supabase`);
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Meta excluída localmente, mas falhou no Supabase");
+    }
   }
 
-  function markTransactionAsDone(transaction: Transaction) {
+  async function markTransactionAsDone(transaction: Transaction) {
     const isIncome = transaction.type === "Receita" || transaction.type === "Conta a receber";
     const isExpense = transaction.type === "Despesa" || transaction.type === "Conta a pagar";
 
@@ -1002,17 +990,21 @@ export default function FinanceiroPage() {
     setSelected(next);
 
     try {
+      await saveTransactionToSupabase(next);
+
       if (isIncome) {
         syncLinkedOrderPaymentFromFinance(next);
       }
+
+      setSupabaseStatus(`Lançamento ${next.id} atualizado no Supabase`);
     } catch {
-      // O financeiro continua funcionando mesmo se a sincronização da OS falhar.
+      setSupabaseStatus("Baixa feita localmente, mas falhou no Supabase");
     }
 
     alert(isIncome ? "Recebimento marcado como recebido." : "Pagamento marcado como pago.");
   }
 
-  function cancelTransaction(transaction: Transaction) {
+  async function cancelTransaction(transaction: Transaction) {
     const confirmed = window.confirm("Deseja cancelar este lançamento financeiro?");
 
     if (!confirmed) return;
@@ -1060,6 +1052,9 @@ export default function FinanceiroPage() {
               <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Financeiro</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
                 Controle receitas, despesas, contas a pagar e receber, centro de custo, metas, orçado x realizado e resultado financeiro da Volt.
+              </p>
+              <p className="mt-3 inline-flex rounded-full border border-volt-yellow/20 bg-volt-yellow/10 px-4 py-2 text-xs font-black text-volt-yellow">
+                Status Supabase: {supabaseStatus}
               </p>
             </div>
 
@@ -1126,6 +1121,12 @@ export default function FinanceiroPage() {
             </button>
           ))}
         </section>
+
+        {transactions.length === 0 && (
+          <div className="rounded-[2rem] border border-volt-yellow/20 bg-volt-yellow/10 p-5 text-sm font-bold leading-7 text-zinc-300">
+            Nenhum lançamento financeiro real cadastrado ainda. Clique em <strong>Nova receita</strong>, <strong>Nova despesa</strong>, <strong>Nova conta a receber</strong> ou <strong>Nova conta a pagar</strong>.
+          </div>
+        )}
 
         {activeTab === "Visão Geral" && (
           <>
