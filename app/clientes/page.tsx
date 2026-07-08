@@ -20,6 +20,7 @@ import {
   Search,
   Target,
   TrendingUp,
+  Trash2,
   UploadCloud,
   UserPlus,
   Users,
@@ -247,13 +248,7 @@ const clientsSeed: Client[] = [
   }
 ];
 
-const leadsSeed: Lead[] = [
-  { id: "LEAD-001", name: "Mercado São José", phone: "(11) 95555-5555", origin: "Google", service: "Manutenção preventiva", estimatedValue: 2800, status: "Novo", temperature: "Quente", nextContact: "2026-06-26", responsible: "Guilherme" },
-  { id: "LEAD-002", name: "Administradora Predial", phone: "(11) 96666-6666", origin: "Indicação", service: "Contrato mensal", estimatedValue: 4500, status: "Em contato", temperature: "Quente", nextContact: "2026-06-27", responsible: "Guilherme" },
-  { id: "LEAD-003", name: "Restaurante Energia", phone: "(11) 97777-7777", origin: "Instagram", service: "Quadro elétrico", estimatedValue: 3200, status: "Orçamento enviado", temperature: "Morno", nextContact: "2026-06-28", responsible: "Guilherme" },
-  { id: "LEAD-004", name: "Cliente GetNinjas", phone: "(11) 98888-8888", origin: "GetNinjas", service: "Tomada dedicada", estimatedValue: 650, status: "Negociação", temperature: "Morno", nextContact: "2026-06-29", responsible: "Guilherme" },
-  { id: "LEAD-005", name: "Loja Comercial Centro", phone: "(11) 99999-0000", origin: "Site", service: "Iluminação", estimatedValue: 1900, status: "Convertido", temperature: "Quente", nextContact: "2026-07-01", responsible: "Guilherme" }
-];
+const leadsSeed: Lead[] = [];
 
 const tabs = ["Visão Geral", "Lista de Clientes", "Leads", "Mapa/Regiões", "Histórico", "Financeiro por Cliente", "Documentos", "Relatórios"];
 const leadColumns: Lead["status"][] = ["Novo", "Em contato", "Orçamento enviado", "Negociação", "Convertido", "Perdido"];
@@ -441,6 +436,7 @@ function ClientComposition() {
 
 
 const CLIENTS_STORAGE_KEY = "volt_clientes_crm_v1";
+const LEADS_STORAGE_KEY = "volt_leads_crm_v1";
 const DELETED_CLIENTS_STORAGE_KEY = "volt_clientes_excluidos_v1";
 const QUOTES_STORAGE_KEY = "volt_cotacoes_premium_v1";
 const ORDERS_STORAGE_KEY = "volt_ordens_premium_v1";
@@ -474,6 +470,22 @@ function readClientsFromStorage() {
     return clientsSeed;
   } catch {
     return clientsSeed;
+  }
+}
+
+function readLeadsFromStorage() {
+  if (typeof window === "undefined") return [] as Lead[];
+
+  try {
+    const raw = localStorage.getItem(LEADS_STORAGE_KEY);
+
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+
+    return Array.isArray(parsed) ? parsed as Lead[] : [];
+  } catch {
+    return [];
   }
 }
 
@@ -727,6 +739,52 @@ function parseClientDocument(entry: string) {
   };
 }
 
+
+async function fetchSupabaseLeads() {
+  const response = await fetch("/api/leads", {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível carregar leads do Supabase.");
+  }
+
+  const data = await response.json();
+
+  return Array.isArray(data.leads) ? data.leads as Lead[] : [];
+}
+
+async function saveLeadToSupabase(lead: Lead) {
+  const response = await fetch("/api/leads", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ lead })
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível salvar lead no Supabase.");
+  }
+
+  const data = await response.json();
+
+  return data.lead as Lead;
+}
+
+async function deleteLeadFromSupabase(lead: Lead) {
+  const response = await fetch(`/api/leads?legacyId=${encodeURIComponent(lead.id)}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Não foi possível excluir lead no Supabase.");
+  }
+}
+
 async function fetchSupabaseClients() {
   const response = await fetch("/api/clients", {
     cache: "no-store"
@@ -794,7 +852,7 @@ async function deleteClientFromSupabase(client: Client) {
 
 export default function ClientesPage() {
   const [clients, setClients] = useState<Client[]>(clientsSeed);
-  const [leads, setLeads] = useState<Lead[]>(leadsSeed);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [activeTab, setActiveTab] = useState("Visão Geral");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("Todos");
@@ -803,6 +861,8 @@ export default function ClientesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<Client | null>(null);
+  const [leadDraft, setLeadDraft] = useState<Lead | null>(null);
+  const [leadEditOpen, setLeadEditOpen] = useState(false);
   const [documentClientId, setDocumentClientId] = useState("");
   const [documentDraft, setDocumentDraft] = useState("");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
@@ -849,8 +909,22 @@ export default function ClientesPage() {
     }
   }
 
+  async function syncLeadsFromSupabase() {
+    try {
+      const supabaseLeads = await fetchSupabaseLeads();
+
+      setLeads(supabaseLeads);
+      localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(supabaseLeads));
+      return;
+    } catch {
+      const localLeads = readLeadsFromStorage();
+      setLeads(localLeads);
+    }
+  }
+
   useEffect(() => {
     syncClientsFromStorage();
+    syncLeadsFromSupabase();
 
     window.addEventListener("storage", syncClientsFromStorage);
     window.addEventListener("volt:ordem-criada", syncClientsFromStorage);
@@ -1362,6 +1436,85 @@ export default function ClientesPage() {
     }
   }
 
+  function makeBlankLead(): Lead {
+    return {
+      id: `LEAD-${String(Date.now()).slice(-6)}`,
+      name: "Novo lead",
+      phone: "",
+      origin: "Manual",
+      service: "A definir",
+      estimatedValue: 0,
+      status: "Novo",
+      temperature: "Morno",
+      nextContact: new Date().toISOString().slice(0, 10),
+      responsible: "Guilherme"
+    };
+  }
+
+  function createLead() {
+    setLeadDraft(makeBlankLead());
+    setLeadEditOpen(true);
+    setActiveTab("Leads");
+  }
+
+  function openLeadEditor(lead: Lead) {
+    setLeadDraft({ ...lead });
+    setLeadEditOpen(true);
+  }
+
+  async function saveLead() {
+    if (!leadDraft) return;
+
+    const next: Lead = {
+      ...leadDraft,
+      name: leadDraft.name.trim() || "Lead sem nome",
+      phone: leadDraft.phone.trim(),
+      origin: leadDraft.origin.trim() || "Manual",
+      service: leadDraft.service.trim() || "A definir",
+      estimatedValue: Number(leadDraft.estimatedValue || 0),
+      responsible: leadDraft.responsible.trim() || "Guilherme"
+    };
+
+    setLeads((current) => {
+      const exists = current.some((lead) => lead.id === next.id);
+      const updated = exists
+        ? current.map((lead) => lead.id === next.id ? next : lead)
+        : [next, ...current];
+
+      localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+
+    setLeadEditOpen(false);
+    setLeadDraft(null);
+
+    try {
+      await saveLeadToSupabase(next);
+      setSupabaseStatus(`Lead ${next.name} salvo no Supabase`);
+      await syncLeadsFromSupabase();
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Lead salvo localmente, mas falhou no Supabase");
+      alert("Lead salvo localmente, mas não consegui salvar no Supabase. Confira se a tabela app_leads existe.");
+    }
+  }
+
+  async function removeLead(lead: Lead) {
+    if (!window.confirm(`Excluir o lead "${lead.name}"?`)) return;
+
+    setLeads((current) => {
+      const updated = current.filter((item) => item.id !== lead.id);
+      localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      await deleteLeadFromSupabase(lead);
+      setSupabaseStatus(`Lead ${lead.name} excluído do Supabase`);
+    } catch (error) {
+      setSupabaseStatus(error instanceof Error ? error.message : "Lead removido localmente, mas falhou no Supabase");
+    }
+  }
+
   async function migrateClientsToSupabase() {
     if (!window.confirm("Enviar a base atual de clientes para o Supabase?\n\nIsso vai gravar/atualizar os clientes no banco.")) return;
 
@@ -1378,8 +1531,23 @@ export default function ClientesPage() {
     }
   }
 
-  function moveLead(id: string, status: Lead["status"]) {
-    setLeads((current) => current.map((lead) => lead.id === id ? { ...lead, status } : lead));
+  async function moveLead(id: string, status: Lead["status"]) {
+    const leadToUpdate = leads.find((lead) => lead.id === id);
+    if (!leadToUpdate) return;
+
+    const updatedLead = { ...leadToUpdate, status };
+
+    setLeads((current) => {
+      const updated = current.map((lead) => lead.id === id ? updatedLead : lead);
+      localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      await saveLeadToSupabase(updatedLead);
+    } catch {
+      setSupabaseStatus("Status do lead atualizado localmente, mas falhou no Supabase");
+    }
   }
 
   function exportCsv() {
@@ -1414,7 +1582,7 @@ export default function ClientesPage() {
               <button onClick={syncClientsFromStorage} className="btn-ghost inline-flex items-center justify-center gap-2"><Users size={17} /> Atualizar CRM</button>
               <button onClick={migrateClientsToSupabase} className="btn-ghost inline-flex items-center justify-center gap-2"><UploadCloud size={17} /> Migrar Supabase</button>
               <button onClick={restoreDeletedClients} className="btn-ghost inline-flex items-center justify-center gap-2"><RefreshCcw size={17} /> Restaurar excluídos</button>
-              <button onClick={() => setActiveTab("Leads")} className="btn-ghost inline-flex items-center justify-center gap-2"><UserPlus size={17} /> Novo lead</button>
+              <button onClick={createLead} className="btn-ghost inline-flex items-center justify-center gap-2"><UserPlus size={17} /> Novo lead</button>
               <button onClick={exportCsv} className="btn-ghost inline-flex items-center justify-center gap-2"><Download size={17} /> Exportar CSV</button>
               <button onClick={generateCrmReport} className="btn-ghost inline-flex items-center justify-center gap-2"><FileText size={17} /> Relatório PDF</button>
             </div>
@@ -1560,39 +1728,73 @@ export default function ClientesPage() {
         )}
 
         {activeTab === "Leads" && (
-          <section className="volt-scroll overflow-x-auto">
-            <div className="grid min-w-[1100px] grid-cols-6 gap-4">
-              {leadColumns.map((column) => (
-                <div key={column} className="rounded-[2rem] border border-white/10 bg-white/[.025] p-3">
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-sm font-black">{column}</p>
-                    <span className="rounded-full bg-white/10 px-2 py-1 text-xs font-black text-zinc-400">
-                      {leads.filter((lead) => lead.status === column).length}
-                    </span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {leads.filter((lead) => lead.status === column).map((lead) => (
-                      <div key={lead.id} className="rounded-3xl border border-white/10 bg-black/35 p-4">
-                        <Badge className={leadColors[lead.temperature]}>{lead.temperature}</Badge>
-                        <p className="mt-3 font-black">{lead.name}</p>
-                        <p className="mt-1 text-xs text-zinc-500">{lead.service}</p>
-                        <p className="mt-2 text-sm font-black text-volt-yellow">{currency(lead.estimatedValue)}</p>
-                        <p className="mt-1 text-xs text-zinc-500">Próximo contato: {lead.nextContact}</p>
-
-                        <div className="mt-4 grid gap-2">
-                          {leadColumns.filter((next) => next !== lead.status).slice(0, 2).map((next) => (
-                            <button key={next} onClick={() => moveLead(lead.id, next)} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-zinc-400 hover:border-volt-yellow/30 hover:text-volt-yellow">
-                              Mover para {next}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+          <section className="space-y-5">
+            <div className="flex flex-col justify-between gap-3 rounded-[2rem] border border-white/10 bg-white/[.025] p-5 md:flex-row md:items-center">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Leads reais</p>
+                <h2 className="mt-1 text-2xl font-black">Funil comercial</h2>
+                <p className="mt-2 text-sm leading-6 text-zinc-500">Sem dados fictícios. Só aparece lead criado por você e salvo no Supabase.</p>
+              </div>
+              <button onClick={createLead} className="btn-primary inline-flex items-center justify-center gap-2"><Plus size={17} /> Novo lead real</button>
             </div>
+
+            <div className="volt-scroll overflow-x-auto">
+              <div className="grid min-w-[1100px] grid-cols-6 gap-4">
+                {leadColumns.map((column) => (
+                  <div key={column} className="rounded-[2rem] border border-white/10 bg-white/[.025] p-3">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-sm font-black">{column}</p>
+                      <span className="rounded-full bg-white/10 px-2 py-1 text-xs font-black text-zinc-400">
+                        {leads.filter((lead) => lead.status === column).length}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {leads.filter((lead) => lead.status === column).map((lead) => (
+                        <div key={lead.id} className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <Badge className={leadColors[lead.temperature]}>{lead.temperature}</Badge>
+                            <button onClick={() => removeLead(lead)} className="rounded-xl border border-red-400/30 bg-red-500/10 p-2 text-red-300">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+
+                          <p className="mt-3 font-black">{lead.name}</p>
+                          <p className="mt-1 text-xs text-zinc-500">{lead.phone || "Sem telefone"} • {lead.origin}</p>
+                          <p className="mt-1 text-xs text-zinc-500">{lead.service}</p>
+                          <p className="mt-2 text-sm font-black text-volt-yellow">{currency(lead.estimatedValue)}</p>
+                          <p className="mt-1 text-xs text-zinc-500">Próximo contato: {lead.nextContact}</p>
+
+                          <div className="mt-4 grid gap-2">
+                            <button onClick={() => openLeadEditor(lead)} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow">
+                              Editar lead
+                            </button>
+
+                            {leadColumns.filter((next) => next !== lead.status).slice(0, 2).map((next) => (
+                              <button key={next} onClick={() => moveLead(lead.id, next)} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-zinc-400 hover:border-volt-yellow/30 hover:text-volt-yellow">
+                                Mover para {next}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {leads.filter((lead) => lead.status === column).length === 0 && (
+                        <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs font-bold leading-5 text-zinc-600">
+                          Nenhum lead real nesta etapa.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {leads.length === 0 && (
+              <div className="rounded-[2rem] border border-volt-yellow/20 bg-volt-yellow/10 p-5 text-sm font-bold leading-7 text-zinc-300">
+                Nenhum lead real cadastrado. Clique em <strong>Novo lead real</strong> para criar o primeiro.
+              </div>
+            )}
           </section>
         )}
 
@@ -1964,6 +2166,18 @@ export default function ClientesPage() {
           </div>
         )}
 
+        {leadEditOpen && leadDraft && (
+          <LeadEditorModal
+            draft={leadDraft}
+            setDraft={setLeadDraft}
+            onSave={saveLead}
+            onCancel={() => {
+              setLeadEditOpen(false);
+              setLeadDraft(null);
+            }}
+          />
+        )}
+
         {editOpen && draft && (
           <ClientEditorModal
             draft={draft}
@@ -2133,6 +2347,94 @@ function ClientEditorModal({
           <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
             <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Documentos, um item por linha</span>
             <textarea value={draft.documents.join("\n")} onChange={(event) => setDocuments(event.target.value)} rows={5} className="mt-2 w-full resize-none bg-transparent text-sm font-bold leading-7 outline-none" />
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+function LeadEditorModal({
+  draft,
+  setDraft,
+  onSave,
+  onCancel
+}: {
+  draft: Lead;
+  setDraft: Dispatch<SetStateAction<Lead | null>>;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function setField<K extends keyof Lead>(field: K, value: Lead[K]) {
+    setDraft((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="volt-scroll max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 shadow-2xl">
+        <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 md:flex-row md:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Lead real</p>
+            <h2 className="mt-1 text-3xl font-black">Cadastro comercial</h2>
+            <p className="mt-2 text-sm text-zinc-500">{draft.id}</p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onSave} className="btn-primary inline-flex items-center gap-2"><CheckCircle2 size={17} /> Salvar lead</button>
+            <button onClick={onCancel} className="btn-ghost">Cancelar</button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Nome do lead</span>
+            <input value={draft.name} onChange={(event) => setField("name", event.target.value)} className="mt-2 w-full bg-transparent text-lg font-black outline-none" placeholder="Nome do cliente/empresa" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Telefone</span>
+            <input value={draft.phone} onChange={(event) => setField("phone", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="(11) 99999-9999" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Origem</span>
+            <input value={draft.origin} onChange={(event) => setField("origin", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="WhatsApp, Google, Indicação..." />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Serviço de interesse</span>
+            <input value={draft.service} onChange={(event) => setField("service", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" placeholder="Ex: Quadro elétrico, instalação, manutenção..." />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Valor estimado</span>
+            <input type="number" value={draft.estimatedValue} onChange={(event) => setField("estimatedValue", Number(event.target.value))} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Próximo contato</span>
+            <input type="date" value={draft.nextContact} onChange={(event) => setField("nextContact", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Status</span>
+            <select value={draft.status} onChange={(event) => setField("status", event.target.value as Lead["status"])} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {leadColumns.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Temperatura</span>
+            <select value={draft.temperature} onChange={(event) => setField("temperature", event.target.value as Lead["temperature"])} className="mt-2 w-full bg-[#080c11] font-bold outline-none">
+              {["Frio", "Morno", "Quente"].map((temp) => <option key={temp}>{temp}</option>)}
+            </select>
+          </label>
+
+          <label className="rounded-2xl border border-white/10 bg-white/[.035] p-4 md:col-span-2">
+            <span className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Responsável</span>
+            <input value={draft.responsible} onChange={(event) => setField("responsible", event.target.value)} className="mt-2 w-full bg-transparent font-bold outline-none" />
           </label>
         </div>
       </div>
