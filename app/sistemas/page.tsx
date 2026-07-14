@@ -111,7 +111,6 @@ function calcTUGs(perimeter: number, type: RoomType) {
   }
 }
 
-// Helpers de Cores para o QDC Visual
 function getBreakerColor(amps: string | number) {
   const a = parseInt(String(amps));
   if (isNaN(a)) return "bg-zinc-700 text-white";
@@ -218,6 +217,17 @@ export default function SistemasPage() {
   const usedModules = placedComponents.reduce((sum, component) => sum + component.modules, 0);
   const selectedComponent = placedComponents.find((component) => component.id === selectedComponentId) ?? null;
 
+  // CÁLCULOS DE POTÊNCIA TOTAL E kVA
+  const totalKW = useMemo(() => {
+    const totalW = circuits.reduce((sum, c) => sum + (c.powerWatts * c.quantity), 0);
+    return (totalW / 1000).toFixed(2);
+  }, [circuits]);
+
+  const totalKVA = useMemo(() => {
+    const totalVA = circuits.reduce((sum, c) => sum + ((c.powerWatts * c.quantity) / (c.powerFactor || 1)), 0);
+    return (totalVA / 1000).toFixed(2);
+  }, [circuits]);
+
   function updateProject<K extends keyof ProjectData>(key: K, value: ProjectData[K]) {
     setProject((current) => ({ ...current, [key]: value }));
   }
@@ -226,7 +236,6 @@ export default function SistemasPage() {
     setQdcProject((current) => ({ ...current, [key]: value }));
   }
 
-  // Lógicas do Dimensionador Automático
   function addRoom() {
     if (!roomDraft.name || !roomDraft.area || !roomDraft.perimeter) {
       alert("Preencha nome, área e perímetro do cômodo.");
@@ -403,7 +412,6 @@ export default function SistemasPage() {
     }
   }
 
-  // Lógicas do QDC
   function addComponent(kind: QdcComponentDefinition["kind"], customLabel?: string, customCurrent?: string) {
     const definition = componentLibrary.find((item) => item.kind === kind);
     if (!definition) return;
@@ -494,7 +502,6 @@ export default function SistemasPage() {
       });
     };
 
-    // 1. Calcular a Corrente do Disjuntor Geral (Fator de Demanda Estimado de 80%)
     const totalWatts = circuits.reduce((sum, c) => sum + (c.powerWatts * c.quantity), 0);
     const v = project.voltage === "127V" ? 127 : 220;
     const estimatedCurrent = (totalWatts * 0.8) / v;
@@ -508,7 +515,6 @@ export default function SistemasPage() {
     push("dps", "DPS", "275V");
     push("dr", "DR - Proteção Geral", `${mainBreakerAmps}A / 30mA`);
 
-    // 2. Adicionar os Disjuntores dos Circuitos Dimensionados
     calculation.results.forEach((result, index) => {
       const kind = result.recommendedBreaker <= 20 ? "breaker-1p" : "breaker-2p";
       push(kind, `DJ ${index + 1} - ${result.name}`, `${result.recommendedBreaker}A`);
@@ -579,9 +585,6 @@ export default function SistemasPage() {
           </button>
         </section>
 
-        {/* ========================================================================= */}
-        {/* ABA DIMENSIONAMENTO                                                       */}
-        {/* ========================================================================= */}
         {activeTab === "dimensionamento" && (
           <div className="space-y-5 animate-fade-in">
             <section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
@@ -601,12 +604,14 @@ export default function SistemasPage() {
                   <Settings2 size={17} /> Ocultar / Mostrar Dados
                 </button>
 
-                <div className="mt-5 grid grid-cols-2 gap-3">
+                <div className="mt-5 grid grid-cols-2 md:grid-cols-3 gap-3">
                   {[
                     ["Cômodos", rooms.length],
                     ["TUEs Configurados", rooms.reduce((acc, r) => acc + r.equipments.length, 0)],
-                    ["Total de Circuitos", circuits.length],
-                    ["Materiais Listados", calculation.materials.length]
+                    ["Circuitos", circuits.length],
+                    ["Materiais", calculation.materials.length],
+                    ["Potência Ativa", `${totalKW} kW`],
+                    ["Potência Aparente", `${totalKVA} kVA`]
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 transition hover:border-volt-yellow/30">
                       <p className="text-xs text-zinc-500">{label}</p>
@@ -978,7 +983,6 @@ export default function SistemasPage() {
 
                     <div className="mb-4 h-3 rounded-full bg-zinc-800 shadow-inner" />
                     
-                    {/* Visual representation of DIN Rail */}
                     <div className="mb-6 flex min-h-40 flex-wrap items-center gap-1 rounded-2xl border border-zinc-700 bg-zinc-800/50 p-4 shadow-inner">
                       {placedComponents.filter((component) => component.modules > 0).map((component, index) => (
                         <div
@@ -1000,7 +1004,6 @@ export default function SistemasPage() {
                             )}
                           </div>
                           
-                          {/* Breaker Switch Visual */}
                           <div className="grid place-items-center">
                              <div className="h-6 w-full max-w-[24px] bg-zinc-800 rounded-sm shadow-inner flex items-center justify-center">
                                <div className="h-3 w-4 bg-black rounded-sm border-t border-zinc-600"></div>
@@ -1011,7 +1014,6 @@ export default function SistemasPage() {
                             <p className="line-clamp-2 text-[9px] font-bold text-zinc-800 leading-tight">{component.label}</p>
                           </div>
                           
-                          {/* Controls (visible on hover or active) */}
                           <div className={`absolute -bottom-8 left-0 w-full flex justify-between gap-1 transition-opacity ${selectedComponentId === component.id ? 'opacity-100' : 'opacity-0'}`}>
                             <button onClick={(event) => { event.stopPropagation(); moveComponent(component.id, -1); }} className="rounded-lg bg-black/60 px-2 py-1 text-[10px] text-white hover:bg-volt-yellow hover:text-black">←</button>
                             <button onClick={(event) => { event.stopPropagation(); moveComponent(component.id, 1); }} className="rounded-lg bg-black/60 px-2 py-1 text-[10px] text-white hover:bg-volt-yellow hover:text-black">→</button>
@@ -1022,7 +1024,6 @@ export default function SistemasPage() {
 
                     <div className="h-3 rounded-full bg-zinc-800 shadow-inner" />
                     
-                    {/* Barramentos e Acessórios */}
                     <div className="mt-5 grid gap-3 md:grid-cols-2">
                       {placedComponents.filter((component) => component.modules === 0).map((component) => (
                         <button
