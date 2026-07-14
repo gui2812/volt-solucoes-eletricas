@@ -50,7 +50,7 @@ const projectSeed: ProjectData = {
 };
 
 const qdcSeed: QdcProjectData = {
-  name: "QDC residencial Volt",
+  name: "QDC principal",
   client: "",
   location: "",
   boardType: "Embutir",
@@ -61,19 +61,16 @@ const qdcSeed: QdcProjectData = {
 };
 
 const componentLibrary: QdcComponentDefinition[] = [
-  { kind: "main-breaker", name: "Disjuntor geral", icon: "DG", modules: 2, nominalCurrent: "63A", description: "Proteção principal do quadro." },
-  { kind: "breaker-1p", name: "Disjuntor monopolar", icon: "1P", modules: 1, nominalCurrent: "16A", description: "Circuito fase + neutro." },
-  { kind: "breaker-2p", name: "Disjuntor bipolar", icon: "2P", modules: 2, nominalCurrent: "32A", description: "Circuito 220V bifásico." },
-  { kind: "breaker-3p", name: "Disjuntor tripolar", icon: "3P", modules: 3, nominalCurrent: "40A", description: "Circuito trifásico." },
-  { kind: "dr", name: "DR", icon: "DR", modules: 2, nominalCurrent: "63A / 30mA", description: "Proteção diferencial residual." },
-  { kind: "dps", name: "DPS", icon: "DPS", modules: 1, nominalCurrent: "275V", description: "Proteção contra surtos." },
-  { kind: "neutral-bar", name: "Barramento de neutro", icon: "N", modules: 1, nominalCurrent: "Neutro", description: "Conexões de neutro." },
-  { kind: "ground-bar", name: "Barramento de terra", icon: "T", modules: 1, nominalCurrent: "Terra", description: "Conexões de aterramento." },
-  { kind: "din-rail", name: "Trilho DIN", icon: "DIN", modules: 0, nominalCurrent: "-", description: "Base de fixação dos componentes." },
-  { kind: "label", name: "Etiqueta", icon: "ET", modules: 0, nominalCurrent: "-", description: "Identificação visual do circuito." },
-  { kind: "wire-phase", name: "Fio fase", icon: "F", modules: 0, nominalCurrent: "2,5mm²", description: "Ligação de fase." },
-  { kind: "wire-neutral", name: "Fio neutro", icon: "N", modules: 0, nominalCurrent: "2,5mm²", description: "Ligação de neutro." },
-  { kind: "wire-ground", name: "Fio terra", icon: "PE", modules: 0, nominalCurrent: "2,5mm²", description: "Ligação de terra." }
+  { kind: "main-breaker", name: "Disjuntor Geral", icon: "DG", modules: 2, nominalCurrent: "63A", description: "Proteção principal." },
+  { kind: "breaker-1p", name: "Disjuntor Monopolar", icon: "1P", modules: 1, nominalCurrent: "16A", description: "Fase." },
+  { kind: "breaker-2p", name: "Disjuntor Bipolar", icon: "2P", modules: 2, nominalCurrent: "32A", description: "Fase + Fase." },
+  { kind: "breaker-3p", name: "Disjuntor Tripolar", icon: "3P", modules: 3, nominalCurrent: "40A", description: "Trifásico." },
+  { kind: "dr", name: "DR", icon: "DR", modules: 2, nominalCurrent: "63A", description: "Fuga de corrente." },
+  { kind: "dps", name: "DPS", icon: "DPS", modules: 1, nominalCurrent: "275V", description: "Surtos." },
+  { kind: "neutral-bar", name: "Barramento Neutro", icon: "N", modules: 1, nominalCurrent: "Neutro", description: "Distribuição N." },
+  { kind: "ground-bar", name: "Barramento Terra", icon: "T", modules: 1, nominalCurrent: "Terra", description: "Distribuição PE." },
+  { kind: "din-rail", name: "Trilho DIN", icon: "DIN", modules: 0, nominalCurrent: "-", description: "Fixação." },
+  { kind: "label", name: "Etiqueta", icon: "ET", modules: 0, nominalCurrent: "-", description: "Identificação." }
 ];
 
 type RoomType = "SECO" | "MOLHADO";
@@ -112,6 +109,28 @@ function calcTUGs(perimeter: number, type: RoomType) {
     const power = qty * 100;
     return { qty, power };
   }
+}
+
+// Helpers de Cores para o QDC Visual
+function getBreakerColor(amps: string | number) {
+  const a = parseInt(String(amps));
+  if (isNaN(a)) return "bg-zinc-700 text-white";
+  if (a <= 10) return "bg-red-500 text-white";
+  if (a <= 16) return "bg-zinc-400 text-black";
+  if (a <= 20) return "bg-blue-500 text-white";
+  if (a <= 25) return "bg-yellow-500 text-black";
+  if (a <= 32) return "bg-purple-500 text-white";
+  if (a <= 40) return "bg-black text-white border border-white/20";
+  if (a <= 50) return "bg-white text-black";
+  if (a <= 63) return "bg-orange-500 text-white";
+  return "bg-zinc-800 text-white";
+}
+
+function getWireColor(type: string) {
+  if (type === "Neutro") return "bg-blue-500";
+  if (type === "Terra") return "bg-green-500";
+  if (type === "Fase") return "bg-red-500";
+  return "bg-yellow-500"; 
 }
 
 function statusClass(status: string) {
@@ -175,7 +194,7 @@ export default function SistemasPage() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("volt_sistemas_tecnicos_v3");
+      const saved = localStorage.getItem("volt_sistemas_tecnicos_v4");
       if (!saved) return;
       const parsed = JSON.parse(saved);
       if (parsed.project) setProject(parsed.project);
@@ -189,7 +208,7 @@ export default function SistemasPage() {
 
   useEffect(() => {
     localStorage.setItem(
-      "volt_sistemas_tecnicos_v3",
+      "volt_sistemas_tecnicos_v4",
       JSON.stringify({ project, rooms, circuits, qdcProject, placedComponents, connections })
     );
   }, [project, rooms, circuits, qdcProject, placedComponents, connections]);
@@ -207,6 +226,7 @@ export default function SistemasPage() {
     setQdcProject((current) => ({ ...current, [key]: value }));
   }
 
+  // Lógicas do Dimensionador Automático
   function addRoom() {
     if (!roomDraft.name || !roomDraft.area || !roomDraft.perimeter) {
       alert("Preencha nome, área e perímetro do cômodo.");
@@ -363,7 +383,7 @@ export default function SistemasPage() {
     const html = generateMemorialHtml(calculation);
     const popup = window.open("", "_blank");
     if (!popup) {
-      alert("Permita pop-ups para gerar o memorial em PDF.");
+      alert("Permita pop-ups.");
       return;
     }
     popup.document.open();
@@ -383,6 +403,7 @@ export default function SistemasPage() {
     }
   }
 
+  // Lógicas do QDC
   function addComponent(kind: QdcComponentDefinition["kind"], customLabel?: string, customCurrent?: string) {
     const definition = componentLibrary.find((item) => item.kind === kind);
     if (!definition) return;
@@ -408,13 +429,7 @@ export default function SistemasPage() {
   }
 
   function duplicateComponent(component: QdcPlacedComponent) {
-    const copy = {
-      ...component,
-      id: `QDC-${Date.now()}-${Math.round(Math.random() * 999)}`,
-      label: `${component.label} cópia`,
-      position: placedComponents.length + 1
-    };
-
+    const copy = { ...component, id: `QDC-${Date.now()}-${Math.round(Math.random() * 999)}`, label: `${component.label} cópia`, position: placedComponents.length + 1 };
     setPlacedComponents((current) => [...current, copy]);
     setSelectedComponentId(copy.id);
   }
@@ -450,17 +465,7 @@ export default function SistemasPage() {
       alert("Selecione origem e destino diferentes.");
       return;
     }
-
-    setConnections((current) => [
-      ...current,
-      {
-        id: `WIRE-${Date.now()}`,
-        from: wireDraft.from,
-        to: wireDraft.to,
-        wireType: wireDraft.wireType,
-        gauge: wireDraft.gauge
-      }
-    ]);
+    setConnections((current) => [...current, { id: `WIRE-${Date.now()}`, from: wireDraft.from, to: wireDraft.to, wireType: wireDraft.wireType, gauge: wireDraft.gauge }]);
   }
 
   function createNewQdc() {
@@ -475,11 +480,9 @@ export default function SistemasPage() {
 
   function generateQdcFromSizing() {
     const nextComponents: QdcPlacedComponent[] = [];
-
     const push = (kind: QdcComponentDefinition["kind"], label?: string, current?: string) => {
       const definition = componentLibrary.find((item) => item.kind === kind);
       if (!definition) return;
-
       nextComponents.push({
         id: `QDC-${Date.now()}-${nextComponents.length}`,
         kind,
@@ -491,17 +494,28 @@ export default function SistemasPage() {
       });
     };
 
-    push("main-breaker", "DG - Disjuntor geral", "63A");
-    push("dps", "DPS - Proteção contra surtos");
-    push("dr", "DR - Proteção geral");
+    // 1. Calcular a Corrente do Disjuntor Geral (Fator de Demanda Estimado de 80%)
+    const totalWatts = circuits.reduce((sum, c) => sum + (c.powerWatts * c.quantity), 0);
+    const v = project.voltage === "127V" ? 127 : 220;
+    const estimatedCurrent = (totalWatts * 0.8) / v;
+    
+    const commercialBreakers = [25, 32, 40, 50, 63, 80, 100, 125];
+    const mainBreakerAmps = commercialBreakers.find(b => b >= estimatedCurrent) || 63;
+    
+    const dgKind = project.electricalSystem === "Monofásico" ? "breaker-1p" : project.electricalSystem === "Trifásico" ? "breaker-3p" : "breaker-2p";
 
+    push(dgKind, "DG - Disjuntor Geral", `${mainBreakerAmps}A`);
+    push("dps", "DPS", "275V");
+    push("dr", "DR - Proteção Geral", `${mainBreakerAmps}A / 30mA`);
+
+    // 2. Adicionar os Disjuntores dos Circuitos Dimensionados
     calculation.results.forEach((result, index) => {
       const kind = result.recommendedBreaker <= 20 ? "breaker-1p" : "breaker-2p";
       push(kind, `DJ ${index + 1} - ${result.name}`, `${result.recommendedBreaker}A`);
     });
 
-    push("neutral-bar", "Barramento de neutro");
-    push("ground-bar", "Barramento de terra");
+    push("neutral-bar", "Barramento de Neutro");
+    push("ground-bar", "Barramento de Terra");
 
     setPlacedComponents(nextComponents);
     setQdcProject((current) => ({
@@ -565,6 +579,9 @@ export default function SistemasPage() {
           </button>
         </section>
 
+        {/* ========================================================================= */}
+        {/* ABA DIMENSIONAMENTO                                                       */}
+        {/* ========================================================================= */}
         {activeTab === "dimensionamento" && (
           <div className="space-y-5 animate-fade-in">
             <section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
@@ -780,7 +797,7 @@ export default function SistemasPage() {
                     <h2 className="mt-1 text-2xl font-black">Circuitos e Disjuntores Dimensionados</h2>
                   </div>
                   <button onClick={generateQdcFromSizing} className="btn-ghost inline-flex items-center gap-2 bg-white/5 hover:bg-white/10">
-                    <ArrowUpRight size={17} /> Visualizar no QDC 3D
+                    <ArrowUpRight size={17} /> Atualizar QDC Automaticamente
                   </button>
                 </div>
 
@@ -802,7 +819,11 @@ export default function SistemasPage() {
                           <td className="rounded-l-2xl px-4 py-4 font-black text-white">{result.name}</td>
                           <td className="px-4 py-4 text-zinc-300">{result.calculatedCurrent} A</td>
                           <td className="px-4 py-4 font-black text-volt-yellow">{result.recommendedCableSection} mm²</td>
-                          <td className="px-4 py-4 font-black text-white">{result.recommendedBreaker} A</td>
+                          <td className="px-4 py-4 font-black text-white">
+                             <span className={`px-2 py-1 rounded text-[10px] uppercase font-black ${getBreakerColor(result.recommendedBreaker)}`}>
+                               {result.recommendedBreaker}A
+                             </span>
+                          </td>
                           <td className="px-4 py-4 text-xs text-zinc-400">
                             DR: {result.recommendedDr} <br/> DPS: {result.recommendedDps}
                           </td>
@@ -860,11 +881,6 @@ export default function SistemasPage() {
                     <button onClick={openMemorialPdf} className="btn-primary w-full inline-flex justify-center items-center gap-2 py-4">
                       <FileText size={18} /> Gerar PDF do Projeto
                     </button>
-                    <div className="rounded-2xl border border-white/5 bg-black/40 p-4 text-center">
-                      <p className="text-xs font-bold text-zinc-500">
-                        O PDF pode ser anexado automaticamente às suas propostas via Resend no futuro.
-                      </p>
-                    </div>
                   </div>
                 </div>
               </section>
@@ -872,18 +888,26 @@ export default function SistemasPage() {
           </div>
         )}
 
+        {/* ========================================================================= */}
+        {/* ABA QDC 3D Visual                                                         */}
+        {/* ========================================================================= */}
         {activeTab === "qdc" && (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-fade-in">
             <section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
                 <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Ferramenta</p>
                 <h2 className="mt-1 text-2xl font-black">Novo QDC</h2>
                 <p className="mt-2 text-sm leading-6 text-zinc-500">
-                  Monte um quadro de distribuição com componentes elétricos, etiquetas e validação visual.
+                  Monte um quadro de distribuição visual, integre as cargas do projeto ou adicione componentes soltos.
                 </p>
-                <button onClick={createNewQdc} className="btn-primary mt-5 inline-flex items-center gap-2">
-                  <Plus size={17} /> Criar novo QDC
-                </button>
+                <div className="mt-5 flex gap-2 flex-wrap">
+                  <button onClick={createNewQdc} className="btn-ghost inline-flex items-center gap-2">
+                    <Trash2 size={17} /> Limpar QDC
+                  </button>
+                  <button onClick={generateQdcFromSizing} className="btn-primary inline-flex items-center gap-2">
+                     <Zap size={17} /> Puxar do Dimensionamento
+                  </button>
+                </div>
               </div>
 
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
@@ -892,26 +916,12 @@ export default function SistemasPage() {
 
                 <div className="mt-5 grid gap-4 md:grid-cols-2">
                   <FieldBox label="Nome do quadro"><TextInput value={qdcProject.name} onChange={(value) => updateQdc("name", value)} /></FieldBox>
-                  <FieldBox label="Cliente"><TextInput value={qdcProject.client} onChange={(value) => updateQdc("client", value)} /></FieldBox>
-                  <FieldBox label="Local da instalação" full><TextInput value={qdcProject.location} onChange={(value) => updateQdc("location", value)} /></FieldBox>
+                  <FieldBox label="Local da instalação"><TextInput value={qdcProject.location} onChange={(value) => updateQdc("location", value)} /></FieldBox>
+                  <FieldBox label="Quantidade de módulos"><NumberInput value={qdcProject.modules} onChange={(value) => updateQdc("modules", value)} /></FieldBox>
                   <FieldBox label="Tipo de quadro">
                     <select value={qdcProject.boardType} onChange={(event) => updateQdc("boardType", event.target.value as QdcProjectData["boardType"])} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
                       {["Embutir", "Sobrepor"].map((item) => <option key={item}>{item}</option>)}
                     </select>
-                  </FieldBox>
-                  <FieldBox label="Quantidade de módulos"><NumberInput value={qdcProject.modules} onChange={(value) => updateQdc("modules", value)} /></FieldBox>
-                  <FieldBox label="Sistema elétrico">
-                    <select value={qdcProject.electricalSystem} onChange={(event) => updateQdc("electricalSystem", event.target.value as QdcProjectData["electricalSystem"])} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-                      {["Monofásico", "Bifásico", "Trifásico"].map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </FieldBox>
-                  <FieldBox label="Tensão">
-                    <select value={qdcProject.voltage} onChange={(event) => updateQdc("voltage", event.target.value as VoltageOption)} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-                      {["127V", "220V", "380V"].map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </FieldBox>
-                  <FieldBox label="Observações" full>
-                    <textarea value={qdcProject.notes} onChange={(event) => updateQdc("notes", event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40" />
                   </FieldBox>
                 </div>
               </div>
@@ -933,13 +943,12 @@ export default function SistemasPage() {
                       className="w-full rounded-3xl border border-white/10 bg-white/[.035] p-4 text-left transition hover:border-volt-yellow/30"
                     >
                       <div className="flex gap-3">
-                        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black text-sm font-black text-volt-yellow">
+                        <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-sm font-black ${component.kind.includes('breaker') ? getBreakerColor(component.nominalCurrent) : 'bg-black text-volt-yellow border border-white/10'}`}>
                           {component.icon}
                         </div>
                         <div>
                           <p className="font-black">{component.name}</p>
                           <p className="mt-1 text-xs text-zinc-500">{component.modules} módulo(s) • {component.nominalCurrent}</p>
-                          <p className="mt-1 text-xs text-zinc-600">{component.description}</p>
                         </div>
                       </div>
                     </button>
@@ -950,7 +959,7 @@ export default function SistemasPage() {
               <div className="card-premium rounded-[2rem] p-5">
                 <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
                   <div>
-                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Visualização</p>
+                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Visualização DIN</p>
                     <h2 className="mt-1 text-2xl font-black">Área de Montagem</h2>
                   </div>
                   <Badge className={statusClass(summary.status)}>Status {summary.status}</Badge>
@@ -961,50 +970,71 @@ export default function SistemasPage() {
                   onDrop={handleDrop}
                   className="min-h-[520px] rounded-[2rem] border border-white/10 bg-[linear-gradient(rgba(255,255,255,.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.05)_1px,transparent_1px)] bg-[size:28px_28px] p-5"
                 >
-                  <div className="rounded-[2rem] border border-white/10 bg-black/70 p-5 shadow-2xl">
+                  <div className="rounded-[2rem] border border-white/10 bg-zinc-900 p-5 shadow-2xl">
                     <div className="mb-5 flex items-center justify-between">
-                      <p className="text-xs font-black uppercase tracking-[.18em] text-volt-yellow">{qdcProject.name}</p>
-                      <p className="text-xs font-bold text-zinc-500">{usedModules}/{qdcProject.modules} módulos</p>
+                      <p className="text-xs font-black uppercase tracking-[.18em] text-white">{qdcProject.name}</p>
+                      <p className="text-xs font-bold text-zinc-400">{usedModules}/{qdcProject.modules} módulos</p>
                     </div>
 
-                    <div className="mb-4 h-3 rounded-full bg-zinc-700 shadow-inner" />
-                    <div className="mb-6 flex min-h-40 flex-wrap items-end gap-2 rounded-2xl border border-white/10 bg-[#05070a] p-4">
+                    <div className="mb-4 h-3 rounded-full bg-zinc-800 shadow-inner" />
+                    
+                    {/* Visual representation of DIN Rail */}
+                    <div className="mb-6 flex min-h-40 flex-wrap items-center gap-1 rounded-2xl border border-zinc-700 bg-zinc-800/50 p-4 shadow-inner">
                       {placedComponents.filter((component) => component.modules > 0).map((component, index) => (
                         <div
                           key={component.id}
                           onClick={() => setSelectedComponentId(component.id)}
-                          className={`relative flex h-32 cursor-pointer flex-col justify-between rounded-xl border p-2 transition ${
-                            selectedComponentId === component.id ? "border-volt-yellow bg-volt-yellow/15" : "border-white/10 bg-white/[.06] hover:border-volt-yellow/30"
+                          className={`relative flex h-36 cursor-pointer flex-col justify-between rounded-lg border-2 bg-zinc-100 p-2 transition-all shadow-md ${
+                            selectedComponentId === component.id ? "border-volt-yellow ring-4 ring-volt-yellow/20" : "border-zinc-300 hover:border-zinc-400"
                           }`}
-                          style={{ width: `${Math.max(54, component.modules * 52)}px` }}
+                          style={{ width: `${Math.max(48, component.modules * 46)}px` }}
                         >
                           <div className="flex items-center justify-between gap-1">
-                            <GripVertical size={13} className="text-zinc-500" />
-                            <span className="text-[10px] font-black text-zinc-500">{component.nominalCurrent}</span>
+                            <GripVertical size={13} className="text-zinc-400" />
+                            {component.kind.includes('breaker') || component.kind === 'main-breaker' ? (
+                               <span className={`px-2 py-0.5 rounded text-[10px] font-black ${getBreakerColor(component.nominalCurrent)} ${parseInt(String(component.nominalCurrent)) === 50 ? 'text-black' : 'text-white'}`}>
+                                 {component.nominalCurrent}
+                               </span>
+                            ) : (
+                               <span className="text-[10px] font-black text-zinc-500">{component.nominalCurrent}</span>
+                            )}
                           </div>
-                          <div className="grid place-items-center text-center">
-                            <p className="text-sm font-black text-volt-yellow">{component.name}</p>
-                            <p className="mt-1 line-clamp-2 text-[10px] font-bold text-zinc-300">{component.label}</p>
+                          
+                          {/* Breaker Switch Visual */}
+                          <div className="grid place-items-center">
+                             <div className="h-6 w-full max-w-[24px] bg-zinc-800 rounded-sm shadow-inner flex items-center justify-center">
+                               <div className="h-3 w-4 bg-black rounded-sm border-t border-zinc-600"></div>
+                             </div>
                           </div>
-                          <div className="flex justify-between gap-1">
-                            <button onClick={(event) => { event.stopPropagation(); moveComponent(component.id, -1); }} className="rounded-lg bg-black/40 px-2 py-1 text-[10px]">←</button>
-                            <span className="text-[10px] text-zinc-600">#{index + 1}</span>
-                            <button onClick={(event) => { event.stopPropagation(); moveComponent(component.id, 1); }} className="rounded-lg bg-black/40 px-2 py-1 text-[10px]">→</button>
+
+                          <div className="text-center bg-white border border-zinc-200 rounded p-1">
+                            <p className="line-clamp-2 text-[9px] font-bold text-zinc-800 leading-tight">{component.label}</p>
+                          </div>
+                          
+                          {/* Controls (visible on hover or active) */}
+                          <div className={`absolute -bottom-8 left-0 w-full flex justify-between gap-1 transition-opacity ${selectedComponentId === component.id ? 'opacity-100' : 'opacity-0'}`}>
+                            <button onClick={(event) => { event.stopPropagation(); moveComponent(component.id, -1); }} className="rounded-lg bg-black/60 px-2 py-1 text-[10px] text-white hover:bg-volt-yellow hover:text-black">←</button>
+                            <button onClick={(event) => { event.stopPropagation(); moveComponent(component.id, 1); }} className="rounded-lg bg-black/60 px-2 py-1 text-[10px] text-white hover:bg-volt-yellow hover:text-black">→</button>
                           </div>
                         </div>
                       ))}
                     </div>
 
-                    <div className="h-3 rounded-full bg-zinc-700 shadow-inner" />
+                    <div className="h-3 rounded-full bg-zinc-800 shadow-inner" />
+                    
+                    {/* Barramentos e Acessórios */}
                     <div className="mt-5 grid gap-3 md:grid-cols-2">
                       {placedComponents.filter((component) => component.modules === 0).map((component) => (
                         <button
                           key={component.id}
                           onClick={() => setSelectedComponentId(component.id)}
-                          className={`rounded-2xl border p-3 text-left ${selectedComponentId === component.id ? "border-volt-yellow bg-volt-yellow/15" : "border-white/10 bg-white/[.035]"}`}
+                          className={`rounded-xl border-2 p-3 text-left flex items-center gap-3 ${selectedComponentId === component.id ? "border-volt-yellow bg-volt-yellow/10" : "border-white/10 bg-black/40"}`}
                         >
-                          <p className="text-sm font-black">{component.label}</p>
-                          <p className="text-xs text-zinc-500">{component.name}</p>
+                          <div className={`w-3 h-3 rounded-full ${component.kind === 'ground-bar' ? 'bg-green-500' : component.kind === 'neutral-bar' ? 'bg-blue-500' : 'bg-zinc-500'}`}></div>
+                          <div>
+                            <p className="text-sm font-black">{component.label}</p>
+                            <p className="text-xs text-zinc-500">{component.name}</p>
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -1012,7 +1042,7 @@ export default function SistemasPage() {
 
                   {placedComponents.length === 0 && (
                     <div className="mt-5 rounded-3xl border border-volt-yellow/20 bg-volt-yellow/10 p-4 text-sm text-zinc-300">
-                      Arraste ou clique nos componentes para iniciar o QDC.
+                      Arraste ou clique nos componentes para iniciar a montagem do QDC.
                     </div>
                   )}
                 </div>
@@ -1033,19 +1063,19 @@ export default function SistemasPage() {
                         <NumberInput value={selectedComponent.modules} onChange={(value) => updateSelectedComponent("modules", value)} />
                       </FieldBox>
                       <div className="flex gap-2">
-                        <button onClick={() => duplicateComponent(selectedComponent)} className="btn-ghost flex-1">Duplicar</button>
+                        <button onClick={() => duplicateComponent(selectedComponent)} className="btn-ghost flex-1 border border-white/10">Duplicar</button>
                         <button onClick={() => removeComponent(selectedComponent.id)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">
                           <Trash2 size={17} />
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <p className="mt-4 text-sm leading-6 text-zinc-500">Selecione um componente do QDC para editar.</p>
+                    <p className="mt-4 text-sm leading-6 text-zinc-500 bg-white/5 p-4 rounded-xl border border-white/5">Selecione um componente do quadro ao lado para editar suas propriedades.</p>
                   )}
                 </div>
 
                 <div className="card-premium rounded-[2rem] p-5">
-                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Ligações manuais</p>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Ligações de Fiação</p>
                   <div className="mt-4 space-y-3">
                     <select value={wireDraft.from} onChange={(event) => setWireDraft((current) => ({ ...current, from: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
                       <option value="">Origem</option>
@@ -1063,73 +1093,24 @@ export default function SistemasPage() {
                         {["1.5 mm²", "2.5 mm²", "4 mm²", "6 mm²", "10 mm²", "16 mm²"].map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </div>
-                    <button onClick={addWireConnection} className="btn-primary w-full">Adicionar ligação</button>
+                    <button onClick={addWireConnection} className="btn-primary w-full flex items-center justify-center gap-2">
+                      <Cable size={16} /> Conectar Cabo
+                    </button>
 
-                    <div className="space-y-2">
+                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1 volt-scroll mt-4">
                       {connections.map((connection) => (
-                        <div key={connection.id} className="rounded-2xl border border-white/10 bg-white/[.035] p-3">
-                          <p className="text-sm font-black">{connection.wireType} • {connection.gauge}</p>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {placedComponents.find((component) => component.id === connection.from)?.label} → {placedComponents.find((component) => component.id === connection.to)?.label}
-                          </p>
+                        <div key={connection.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3">
+                           <div className={`w-3 h-12 rounded-full ${getWireColor(connection.wireType)}`}></div>
+                           <div>
+                             <p className="text-sm font-black">{connection.wireType} • {connection.gauge}</p>
+                             <p className="mt-1 text-[10px] text-zinc-400 leading-tight">
+                               {placedComponents.find((c) => c.id === connection.from)?.label} <br/>⬇<br/> {placedComponents.find((c) => c.id === connection.to)?.label}
+                             </p>
+                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="grid gap-5 xl:grid-cols-[1fr_.8fr]">
-              <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Auditoria</p>
-                <h2 className="mt-1 text-2xl font-black">Validação do QDC</h2>
-                <div className="mt-5 grid gap-3 md:grid-cols-2">
-                  {validations.map((validation) => (
-                    <div key={validation.title} className={`rounded-3xl border p-4 ${statusClass(validation.status)}`}>
-                      <div className="flex gap-3">
-                        {validation.status === "OK" ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
-                        <div>
-                          <p className="font-black">{validation.title}</p>
-                          <p className="mt-1 text-sm leading-6">{validation.description}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-5 rounded-3xl border border-white/10 bg-white/[.035] p-4">
-                  <p className="text-sm leading-6 text-zinc-500">
-                    As validações são orientativas. O projeto final deve ser conferido por profissional habilitado considerando normas técnicas aplicáveis, método de instalação, queda de tensão, agrupamento, temperatura, seletividade e fabricante dos componentes.
-                  </p>
-                </div>
-              </div>
-
-              <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Métricas</p>
-                <h2 className="mt-1 text-2xl font-black">Resumo do QDC</h2>
-
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  {[
-                    ["Disjuntores", summary.breakers],
-                    ["DR", summary.dr],
-                    ["DPS", summary.dps],
-                    ["Módulos usados", summary.usedModules],
-                    ["Módulos livres", summary.freeModules],
-                    ["Ligações", connections.length]
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-2xl border border-white/10 bg-white/[.035] p-4">
-                      <p className="text-xs text-zinc-500">{label}</p>
-                      <p className="mt-1 text-2xl font-black text-volt-yellow">{value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-5 rounded-3xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
-                  <p className="font-black text-volt-yellow">Status geral: {summary.status}</p>
-                  <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    Primeira versão em visual 2D. Arquitetura preparada para evoluir para Three.js na segunda versão.
-                  </p>
                 </div>
               </div>
             </section>
