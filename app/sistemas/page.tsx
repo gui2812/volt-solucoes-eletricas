@@ -32,7 +32,11 @@ import {
   Settings2,
   ShieldCheck,
   Trash2,
-  Zap
+  Zap,
+  Lightbulb,
+  Plug,
+  Snowflake,
+  Home
 } from "lucide-react";
 import type { DragEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -46,22 +50,6 @@ const projectSeed: ProjectData = {
   voltage: "220V",
   technicalResponsible: "Guilherme Santana",
   notes: ""
-};
-
-const circuitSeed: CircuitInput = {
-  id: "CIR-001",
-  name: "Iluminação",
-  type: "Iluminação",
-  powerWatts: 800,
-  quantity: 1,
-  voltage: 220,
-  powerFactor: 1,
-  lengthMeters: 20,
-  installationMethod: "Eletroduto embutido em alvenaria",
-  ambientTemperature: 30,
-  groupedConductors: 3,
-  cableMaterial: "Cobre",
-  insulation: "PVC"
 };
 
 const qdcSeed: QdcProjectData = {
@@ -91,6 +79,44 @@ const componentLibrary: QdcComponentDefinition[] = [
   { kind: "wire-ground", name: "Fio terra", icon: "PE", modules: 0, nominalCurrent: "2,5mm²", description: "Ligação de terra." }
 ];
 
+type RoomType = "SECO" | "MOLHADO";
+
+interface Equipment {
+  id: string;
+  name: string;
+  powerWatts: number;
+  voltage: number;
+}
+
+interface Room {
+  id: string;
+  name: string;
+  area: number;
+  perimeter: number;
+  type: RoomType;
+  equipments: Equipment[];
+}
+
+function calcLighting(area: number) {
+  if (area <= 0) return 0;
+  if (area <= 6) return 100;
+  const extra = Math.floor((area - 6) / 4);
+  return 100 + (extra * 60);
+}
+
+function calcTUGs(perimeter: number, type: RoomType) {
+  if (perimeter <= 0) return { qty: 0, power: 0 };
+  if (type === "MOLHADO") {
+    const qty = Math.ceil(perimeter / 3.5);
+    const power = qty <= 3 ? qty * 600 : (3 * 600) + ((qty - 3) * 100);
+    return { qty, power };
+  } else {
+    const qty = Math.ceil(perimeter / 5);
+    const power = qty * 100;
+    return { qty, power };
+  }
+}
+
 function currency(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -105,13 +131,14 @@ function Badge({ children, className }: { children: React.ReactNode; className: 
   return <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[.12em] ${className}`}>{children}</span>;
 }
 
-function NumberInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+function NumberInput({ value, onChange, placeholder }: { value: number; onChange: (value: number) => void; placeholder?: string }) {
   return (
     <input
       type="number"
-      value={value}
+      value={value || ""}
+      placeholder={placeholder}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+      className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40 placeholder:text-zinc-700"
     />
   );
 }
@@ -139,9 +166,16 @@ function FieldBox({ label, children, full }: { label: string; children: React.Re
 export default function SistemasPage() {
   const [activeTab, setActiveTab] = useState<"dimensionamento" | "qdc">("dimensionamento");
   const [project, setProject] = useState<ProjectData>(projectSeed);
-  const [circuits, setCircuits] = useState<CircuitInput[]>([circuitSeed]);
-  const [circuitDraft, setCircuitDraft] = useState<CircuitInput>({ ...circuitSeed, id: "CIR-002", name: "Tomadas" });
   const [showProjectForm, setShowProjectForm] = useState(true);
+  
+  // Novos estados para a automação da NBR 5410
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomDraft, setRoomDraft] = useState<Partial<Room>>({ name: "", area: 0, perimeter: 0, type: "SECO" });
+  const [eqDrafts, setEqDrafts] = useState<Record<string, Partial<Equipment>>>({});
+
+  const [circuits, setCircuits] = useState<CircuitInput[]>([]);
+  
+  // QDC States
   const [qdcProject, setQdcProject] = useState<QdcProjectData>(qdcSeed);
   const [placedComponents, setPlacedComponents] = useState<QdcPlacedComponent[]>([]);
   const [selectedComponentId, setSelectedComponentId] = useState<string>("");
@@ -150,25 +184,24 @@ export default function SistemasPage() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("volt_sistemas_tecnicos_v1");
+      const saved = localStorage.getItem("volt_sistemas_tecnicos_v2");
       if (!saved) return;
       const parsed = JSON.parse(saved);
       if (parsed.project) setProject(parsed.project);
+      if (Array.isArray(parsed.rooms)) setRooms(parsed.rooms);
       if (Array.isArray(parsed.circuits)) setCircuits(parsed.circuits);
       if (parsed.qdcProject) setQdcProject(parsed.qdcProject);
       if (Array.isArray(parsed.placedComponents)) setPlacedComponents(parsed.placedComponents);
       if (Array.isArray(parsed.connections)) setConnections(parsed.connections);
-    } catch {
-      // Mantém dados iniciais se o storage estiver inválido.
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
     localStorage.setItem(
-      "volt_sistemas_tecnicos_v1",
-      JSON.stringify({ project, circuits, qdcProject, placedComponents, connections })
+      "volt_sistemas_tecnicos_v2",
+      JSON.stringify({ project, rooms, circuits, qdcProject, placedComponents, connections })
     );
-  }, [project, circuits, qdcProject, placedComponents, connections]);
+  }, [project, rooms, circuits, qdcProject, placedComponents, connections]);
 
   const calculation = useMemo(() => calculateSizing(project, circuits), [project, circuits]);
   const validations = useMemo(() => validateQdcProject(qdcProject, placedComponents), [qdcProject, placedComponents]);
@@ -183,33 +216,154 @@ export default function SistemasPage() {
     setQdcProject((current) => ({ ...current, [key]: value }));
   }
 
-  function updateDraft<K extends keyof CircuitInput>(key: K, value: CircuitInput[K]) {
-    setCircuitDraft((current) => ({ ...current, [key]: value }));
-  }
-
-  function addCircuit() {
-    if (!circuitDraft.name.trim()) {
-      alert("Informe o nome do circuito.");
+  function addRoom() {
+    if (!roomDraft.name || !roomDraft.area || !roomDraft.perimeter) {
+      alert("Preencha nome, área e perímetro do cômodo.");
       return;
     }
+    const newRoom: Room = {
+      id: `ROOM-${Date.now()}`,
+      name: roomDraft.name,
+      area: roomDraft.area,
+      perimeter: roomDraft.perimeter,
+      type: roomDraft.type as RoomType,
+      equipments: []
+    };
+    setRooms([...rooms, newRoom]);
+    setRoomDraft({ name: "", area: 0, perimeter: 0, type: "SECO" });
+  }
 
-    setCircuits((current) => [
-      ...current,
-      { ...circuitDraft, id: `CIR-${String(current.length + 1).padStart(3, "0")}` }
-    ]);
+  function removeRoom(id: string) {
+    setRooms(rooms.filter(r => r.id !== id));
+  }
 
-    setCircuitDraft((current) => ({
-      ...current,
-      id: `CIR-${String(circuits.length + 2).padStart(3, "0")}`,
-      name: "",
-      powerWatts: 0,
-      quantity: 1,
-      lengthMeters: 0
+  function handleEqDraftChange(roomId: string, field: keyof Equipment, value: any) {
+    setEqDrafts(prev => ({
+      ...prev,
+      [roomId]: { ...prev[roomId], [field]: value }
     }));
   }
 
-  function removeCircuit(id: string) {
-    setCircuits((current) => current.filter((circuit) => circuit.id !== id));
+  function addEquipment(roomId: string) {
+    const draft = eqDrafts[roomId];
+    if (!draft || !draft.name || !draft.powerWatts || !draft.voltage) {
+      alert("Preencha nome, potência e tensão do equipamento.");
+      return;
+    }
+    setRooms(rooms.map(r => {
+      if (r.id === roomId) {
+        return {
+          ...r,
+          equipments: [...r.equipments, { id: `EQ-${Date.now()}`, name: draft.name!, powerWatts: draft.powerWatts!, voltage: draft.voltage! }]
+        };
+      }
+      return r;
+    }));
+    setEqDrafts(prev => ({ ...prev, [roomId]: { name: "", powerWatts: 0, voltage: 220 } }));
+  }
+
+  function removeEquipment(roomId: string, eqId: string) {
+    setRooms(rooms.map(r => {
+      if (r.id === roomId) {
+        return { ...r, equipments: r.equipments.filter(eq => eq.id !== eqId) };
+      }
+      return r;
+    }));
+  }
+
+  function generateCircuitsFromRooms() {
+    const newCircuits: CircuitInput[] = [];
+    let lightWatts = 0;
+    let tugDryWatts = 0;
+    let tugWetWatts = 0;
+
+    rooms.forEach((room) => {
+      lightWatts += calcLighting(room.area);
+      const tugs = calcTUGs(room.perimeter, room.type);
+      
+      if (room.type === "SECO") {
+        tugDryWatts += tugs.power;
+      } else {
+        tugWetWatts += tugs.power;
+      }
+
+      room.equipments.forEach((eq) => {
+        newCircuits.push({
+          id: `CIR-TUE-${Date.now()}-${Math.random()}`,
+          name: `${eq.name} (${room.name})`,
+          type: "TUE",
+          powerWatts: eq.powerWatts,
+          quantity: 1,
+          voltage: eq.voltage,
+          powerFactor: 0.95,
+          lengthMeters: 15,
+          installationMethod: "Eletroduto embutido em alvenaria",
+          ambientTemperature: 30,
+          groupedConductors: 2,
+          cableMaterial: "Cobre",
+          insulation: "PVC"
+        });
+      });
+    });
+
+    const v = project.voltage === "127V" ? 127 : 220;
+
+    if (lightWatts > 0) {
+      newCircuits.push({
+        id: `CIR-LGT-${Date.now()}`,
+        name: "Iluminação Geral",
+        type: "Iluminação",
+        powerWatts: lightWatts,
+        quantity: 1,
+        voltage: v,
+        powerFactor: 1,
+        lengthMeters: 20,
+        installationMethod: "Eletroduto embutido em alvenaria",
+        ambientTemperature: 30,
+        groupedConductors: 3,
+        cableMaterial: "Cobre",
+        insulation: "PVC"
+      });
+    }
+
+    if (tugDryWatts > 0) {
+      newCircuits.push({
+        id: `CIR-TUG-S-${Date.now()}`,
+        name: "TUGs - Áreas Secas",
+        type: "TUG",
+        powerWatts: tugDryWatts,
+        quantity: 1,
+        voltage: v,
+        powerFactor: 0.92,
+        lengthMeters: 25,
+        installationMethod: "Eletroduto embutido em alvenaria",
+        ambientTemperature: 30,
+        groupedConductors: 3,
+        cableMaterial: "Cobre",
+        insulation: "PVC"
+      });
+    }
+
+    if (tugWetWatts > 0) {
+      newCircuits.push({
+        id: `CIR-TUG-M-${Date.now()}`,
+        name: "TUGs - Áreas Molhadas",
+        type: "TUG",
+        powerWatts: tugWetWatts,
+        quantity: 1,
+        voltage: v,
+        powerFactor: 0.92,
+        lengthMeters: 20,
+        installationMethod: "Eletroduto embutido em alvenaria",
+        ambientTemperature: 30,
+        groupedConductors: 3,
+        cableMaterial: "Cobre",
+        insulation: "PVC"
+      });
+    }
+
+    setCircuits(newCircuits);
+    alert("Circuitos gerados com sucesso com base na NBR 5410!");
   }
 
   function openMemorialPdf() {
@@ -228,6 +382,7 @@ export default function SistemasPage() {
 
   function createNewDimensioning() {
     setProject(projectSeed);
+    setRooms([]);
     setCircuits([]);
     setShowProjectForm(true);
     setActiveTab("dimensionamento");
@@ -481,123 +636,167 @@ export default function SistemasPage() {
               )}
             </section>
 
-            <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
-              <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 2</p>
-                <h2 className="mt-1 text-2xl font-black">Circuitos</h2>
-                <p className="mt-2 text-sm text-zinc-500">Adicione circuitos ilimitados ao dimensionamento.</p>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
-                  <FieldBox label="Nome do circuito"><TextInput value={circuitDraft.name} onChange={(value) => updateDraft("name", value)} /></FieldBox>
-                  <FieldBox label="Tipo">
-                    <select value={circuitDraft.type} onChange={(event) => updateDraft("type", event.target.value as CircuitInput["type"])} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-                      {["Iluminação", "TUG", "TUE", "Chuveiro", "Ar-condicionado", "Motor", "Outro"].map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </FieldBox>
-                  <FieldBox label="Potência em watts"><NumberInput value={circuitDraft.powerWatts} onChange={(value) => updateDraft("powerWatts", value)} /></FieldBox>
-                  <FieldBox label="Quantidade"><NumberInput value={circuitDraft.quantity} onChange={(value) => updateDraft("quantity", value)} /></FieldBox>
-                  <FieldBox label="Tensão"><NumberInput value={circuitDraft.voltage} onChange={(value) => updateDraft("voltage", value)} /></FieldBox>
-                  <FieldBox label="Fator de potência"><NumberInput value={circuitDraft.powerFactor} onChange={(value) => updateDraft("powerFactor", value)} /></FieldBox>
-                  <FieldBox label="Comprimento em metros"><NumberInput value={circuitDraft.lengthMeters} onChange={(value) => updateDraft("lengthMeters", value)} /></FieldBox>
-                  <FieldBox label="Temperatura ambiente"><NumberInput value={circuitDraft.ambientTemperature} onChange={(value) => updateDraft("ambientTemperature", value)} /></FieldBox>
-                  <FieldBox label="Condutores agrupados"><NumberInput value={circuitDraft.groupedConductors} onChange={(value) => updateDraft("groupedConductors", value)} /></FieldBox>
-                  <FieldBox label="Material do cabo">
-                    <select value={circuitDraft.cableMaterial} onChange={(event) => updateDraft("cableMaterial", event.target.value as CircuitInput["cableMaterial"])} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-                      {["Cobre", "Alumínio"].map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </FieldBox>
-                  <FieldBox label="Tipo de isolação">
-                    <select value={circuitDraft.insulation} onChange={(event) => updateDraft("insulation", event.target.value as CircuitInput["insulation"])} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-                      {["PVC", "EPR", "XLPE"].map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </FieldBox>
-                  <FieldBox label="Método de instalação" full><TextInput value={circuitDraft.installationMethod} onChange={(value) => updateDraft("installationMethod", value)} /></FieldBox>
-                </div>
-
-                <button onClick={addCircuit} className="btn-primary mt-5 inline-flex items-center gap-2">
-                  <Plus size={17} /> Adicionar circuito
-                </button>
-              </div>
-
-              <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <div className="mb-5 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Circuitos cadastrados</p>
-                    <h2 className="mt-1 text-2xl font-black">Lista atual</h2>
-                  </div>
-                  <Cable className="text-volt-yellow" size={28} />
-                </div>
-
-                <div className="space-y-3">
-                  {circuits.map((circuit) => (
-                    <div key={circuit.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-4">
-                      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-                        <div>
-                          <p className="font-black">{circuit.name}</p>
-                          <p className="mt-1 text-sm text-zinc-500">{circuit.type} • {circuit.powerWatts * circuit.quantity} W • {circuit.lengthMeters} m</p>
-                        </div>
-                        <button onClick={() => removeCircuit(circuit.id)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-black text-red-200">
-                          Remover
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-
-                  {circuits.length === 0 && (
-                    <div className="rounded-3xl border border-white/10 bg-white/[.035] p-6 text-sm text-zinc-500">
-                      Nenhum circuito cadastrado.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-
             <section className="card-premium rounded-[2rem] p-5 md:p-6">
               <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
                 <div>
-                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 3</p>
-                  <h2 className="mt-1 text-2xl font-black">Resultado do Dimensionamento</h2>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Dimensionador Automático</p>
+                  <h2 className="mt-1 text-2xl font-black">Cômodos e Equipamentos</h2>
+                  <p className="mt-2 text-sm text-zinc-500">Adicione os cômodos para calcular Iluminação e TUGs pela NBR 5410.</p>
                 </div>
-                <button onClick={generateQdcFromSizing} className="btn-primary inline-flex items-center gap-2">
-                  <ArrowUpRight size={17} /> Gerar QDC automaticamente
+                <button onClick={generateCircuitsFromRooms} className="btn-primary inline-flex items-center gap-2">
+                  <Zap size={17} /> Gerar Circuitos (NBR 5410)
                 </button>
               </div>
 
-              <div className="volt-scroll overflow-x-auto">
-                <table className="w-full min-w-[1050px] border-separate border-spacing-y-2">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-[.16em] text-zinc-600">
-                      <th className="px-4 py-2">Circuito</th>
-                      <th className="px-4 py-2">Corrente</th>
-                      <th className="px-4 py-2">Bitola</th>
-                      <th className="px-4 py-2">Disjuntor</th>
-                      <th className="px-4 py-2">DR</th>
-                      <th className="px-4 py-2">DPS</th>
-                      <th className="px-4 py-2">Queda tensão</th>
-                      <th className="px-4 py-2">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calculation.results.map((result) => (
-                      <tr key={result.circuitId} className="bg-white/[.035] text-sm">
-                        <td className="rounded-l-2xl px-4 py-4 font-black">{result.name}</td>
-                        <td className="px-4 py-4">{result.calculatedCurrent} A</td>
-                        <td className="px-4 py-4">{result.recommendedCableSection} mm²</td>
-                        <td className="px-4 py-4">{result.recommendedBreaker} A</td>
-                        <td className="px-4 py-4">{result.recommendedDr}</td>
-                        <td className="px-4 py-4">{result.recommendedDps}</td>
-                        <td className="px-4 py-4">{result.voltageDropPercent}%</td>
-                        <td className="rounded-r-2xl px-4 py-4"><Badge className={statusClass(result.status)}>{result.status}</Badge></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid gap-4 md:grid-cols-4 items-end mb-6 bg-white/[.02] p-4 rounded-2xl border border-white/10">
+                <FieldBox label="Nome do Cômodo">
+                  <TextInput value={roomDraft.name || ""} placeholder="Ex: Quarto 1" onChange={(value) => setRoomDraft({ ...roomDraft, name: value })} />
+                </FieldBox>
+                <FieldBox label="Área (m²)">
+                  <NumberInput value={roomDraft.area || 0} onChange={(value) => setRoomDraft({ ...roomDraft, area: value })} />
+                </FieldBox>
+                <FieldBox label="Perímetro (m)">
+                  <NumberInput value={roomDraft.perimeter || 0} onChange={(value) => setRoomDraft({ ...roomDraft, perimeter: value })} />
+                </FieldBox>
+                <div className="flex gap-2 h-full items-end">
+                  <select 
+                    value={roomDraft.type} 
+                    onChange={(e) => setRoomDraft({ ...roomDraft, type: e.target.value as RoomType })}
+                    className="w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none h-[46px] mb-1"
+                  >
+                    <option value="SECO">Seco (Sala, Quarto)</option>
+                    <option value="MOLHADO">Molhado (Cozinha, WC)</option>
+                  </select>
+                  <button onClick={addRoom} className="btn-primary h-[46px] px-6 mb-1 rounded-2xl">
+                    <Plus size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {rooms.map(room => {
+                  const light = calcLighting(room.area);
+                  const tugs = calcTUGs(room.perimeter, room.type);
+                  
+                  return (
+                    <div key={room.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-5 flex flex-col">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="text-lg font-black">{room.name}</h3>
+                          <p className="text-xs text-zinc-500">{room.area}m² • {room.perimeter}m • {room.type === 'SECO' ? 'Área Seca' : 'Área Molhada'}</p>
+                        </div>
+                        <button onClick={() => removeRoom(room.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16}/></button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="bg-[#080c11] p-3 rounded-2xl border border-white/5 flex flex-col items-center justify-center text-center">
+                          <Lightbulb className="text-volt-yellow mb-1" size={18} />
+                          <span className="text-xs text-zinc-500">Iluminação</span>
+                          <span className="font-black">{light} VA</span>
+                        </div>
+                        <div className="bg-[#080c11] p-3 rounded-2xl border border-white/5 flex flex-col items-center justify-center text-center">
+                          <Plug className="text-volt-yellow mb-1" size={18} />
+                          <span className="text-xs text-zinc-500">{tugs.qty} TUGs</span>
+                          <span className="font-black">{tugs.power} VA</span>
+                        </div>
+                      </div>
+
+                      <div className="flex-1">
+                        <p className="text-xs font-black uppercase tracking-[.1em] text-zinc-600 mb-2">Equipamentos Específicos (TUE)</p>
+                        <div className="space-y-2 mb-3">
+                          {room.equipments.map(eq => (
+                            <div key={eq.id} className="flex justify-between items-center bg-black/40 p-2 rounded-xl border border-white/5">
+                              <div className="flex items-center gap-2">
+                                <Snowflake size={14} className="text-zinc-400" />
+                                <div>
+                                  <p className="text-xs font-bold">{eq.name}</p>
+                                  <p className="text-[10px] text-zinc-500">{eq.powerWatts}W • {eq.voltage}V</p>
+                                </div>
+                              </div>
+                              <button onClick={() => removeEquipment(room.id, eq.id)} className="text-red-400/50 hover:text-red-400"><Trash2 size={14}/></button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex gap-2 mt-auto">
+                          <input 
+                            type="text" 
+                            placeholder="Equip..." 
+                            value={eqDrafts[room.id]?.name || ""}
+                            onChange={e => handleEqDraftChange(room.id, "name", e.target.value)}
+                            className="w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-xs font-bold outline-none focus:border-volt-yellow/40"
+                          />
+                          <input 
+                            type="number" 
+                            placeholder="W" 
+                            value={eqDrafts[room.id]?.powerWatts || ""}
+                            onChange={e => handleEqDraftChange(room.id, "powerWatts", Number(e.target.value))}
+                            className="w-16 rounded-xl border border-white/10 bg-black/35 px-2 py-2 text-xs font-bold outline-none focus:border-volt-yellow/40"
+                          />
+                          <button onClick={() => addEquipment(room.id)} className="bg-volt-yellow text-black rounded-xl px-3 hover:bg-volt-yellow/80 transition">
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                {rooms.length === 0 && (
+                  <div className="col-span-full rounded-3xl border border-white/10 bg-white/[.02] p-6 text-sm text-center text-zinc-500">
+                    Nenhum cômodo cadastrado. Use o formulário acima para iniciar o dimensionamento inteligente.
+                  </div>
+                )}
               </div>
             </section>
 
+            {circuits.length > 0 && (
+              <section className="card-premium rounded-[2rem] p-5 md:p-6">
+                <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Resultado Automático</p>
+                    <h2 className="mt-1 text-2xl font-black">Circuitos Gerados</h2>
+                  </div>
+                  <button onClick={generateQdcFromSizing} className="btn-primary inline-flex items-center gap-2">
+                    <ArrowUpRight size={17} /> Gerar QDC automaticamente
+                  </button>
+                </div>
+
+                <div className="volt-scroll overflow-x-auto">
+                  <table className="w-full min-w-[1050px] border-separate border-spacing-y-2">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-[.16em] text-zinc-600">
+                        <th className="px-4 py-2">Circuito</th>
+                        <th className="px-4 py-2">Corrente</th>
+                        <th className="px-4 py-2">Bitola</th>
+                        <th className="px-4 py-2">Disjuntor</th>
+                        <th className="px-4 py-2">DR</th>
+                        <th className="px-4 py-2">DPS</th>
+                        <th className="px-4 py-2">Queda tensão</th>
+                        <th className="px-4 py-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {calculation.results.map((result) => (
+                        <tr key={result.circuitId} className="bg-white/[.035] text-sm">
+                          <td className="rounded-l-2xl px-4 py-4 font-black">{result.name}</td>
+                          <td className="px-4 py-4">{result.calculatedCurrent} A</td>
+                          <td className="px-4 py-4">{result.recommendedCableSection} mm²</td>
+                          <td className="px-4 py-4">{result.recommendedBreaker} A</td>
+                          <td className="px-4 py-4">{result.recommendedDr}</td>
+                          <td className="px-4 py-4">{result.recommendedDps}</td>
+                          <td className="px-4 py-4">{result.voltageDropPercent}%</td>
+                          <td className="rounded-r-2xl px-4 py-4"><Badge className={statusClass(result.status)}>{result.status}</Badge></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
             <section className="grid gap-5 xl:grid-cols-[1fr_.8fr]">
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 4</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Resumo</p>
                 <h2 className="mt-1 text-2xl font-black">Lista de Materiais</h2>
                 <div className="volt-scroll mt-5 overflow-x-auto">
                   <table className="w-full min-w-[850px] border-separate border-spacing-y-2">
@@ -626,7 +825,7 @@ export default function SistemasPage() {
               </div>
 
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 5</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Documento</p>
                 <h2 className="mt-1 text-2xl font-black">Memorial de Cálculo</h2>
                 <p className="mt-3 text-sm leading-7 text-zinc-400">
                   Gera um memorial em PDF por impressão contendo dados do cliente, projeto, tabela de circuitos, cálculos, materiais e responsável técnico.
@@ -639,7 +838,7 @@ export default function SistemasPage() {
                 <div className="mt-5 rounded-3xl border border-volt-yellow/20 bg-volt-yellow/10 p-4">
                   <p className="font-black text-volt-yellow">Estrutura técnica</p>
                   <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    Fórmulas isoladas em utils, motor de cálculo em services e tipos separados em types.
+                    O dimensionamento agora opera diretamente via NBR 5410 com geração automática de cargas com base em área e perímetro.
                   </p>
                 </div>
               </div>
@@ -651,7 +850,7 @@ export default function SistemasPage() {
           <div className="space-y-5">
             <section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 1</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Ferramenta</p>
                 <h2 className="mt-1 text-2xl font-black">Novo QDC</h2>
                 <p className="mt-2 text-sm leading-6 text-zinc-500">
                   Monte um quadro de distribuição com componentes elétricos, etiquetas e validação visual.
@@ -662,7 +861,7 @@ export default function SistemasPage() {
               </div>
 
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 2</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Especificações</p>
                 <h2 className="mt-1 text-2xl font-black">Dados do Quadro</h2>
 
                 <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -694,7 +893,7 @@ export default function SistemasPage() {
 
             <section className="grid gap-5 xl:grid-cols-[.75fr_1.25fr_.85fr]">
               <div className="card-premium rounded-[2rem] p-5">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 3</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Biblioteca</p>
                 <h2 className="mt-1 text-2xl font-black">Componentes</h2>
                 <p className="mt-2 text-sm text-zinc-500">Arraste para o quadro ou clique para adicionar.</p>
 
@@ -725,7 +924,7 @@ export default function SistemasPage() {
               <div className="card-premium rounded-[2rem] p-5">
                 <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
                   <div>
-                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 4</p>
+                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Visualização</p>
                     <h2 className="mt-1 text-2xl font-black">Área de Montagem</h2>
                   </div>
                   <Badge className={statusClass(summary.status)}>Status {summary.status}</Badge>
@@ -857,7 +1056,7 @@ export default function SistemasPage() {
 
             <section className="grid gap-5 xl:grid-cols-[1fr_.8fr]">
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 5</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Auditoria</p>
                 <h2 className="mt-1 text-2xl font-black">Validação do QDC</h2>
                 <div className="mt-5 grid gap-3 md:grid-cols-2">
                   {validations.map((validation) => (
@@ -881,7 +1080,7 @@ export default function SistemasPage() {
               </div>
 
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
-                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Card 6</p>
+                <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Métricas</p>
                 <h2 className="mt-1 text-2xl font-black">Resumo do QDC</h2>
 
                 <div className="mt-5 grid grid-cols-2 gap-3">
