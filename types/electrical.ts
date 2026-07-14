@@ -55,6 +55,9 @@ export type MaterialItem = {
   quantity: number;
   unit: string;
   observation: string;
+  unitCost?: number;     
+  totalCost?: number;    
+  salePrice?: number;    
 };
 
 export type SizingCalculation = {
@@ -77,19 +80,7 @@ export type QdcProjectData = {
 };
 
 export type QdcComponentKind =
-  | "main-breaker"
-  | "breaker-1p"
-  | "breaker-2p"
-  | "breaker-3p"
-  | "dr"
-  | "dps"
-  | "neutral-bar"
-  | "ground-bar"
-  | "din-rail"
-  | "label"
-  | "wire-phase"
-  | "wire-neutral"
-  | "wire-ground";
+  | "main-breaker" | "breaker-1p" | "breaker-2p" | "breaker-3p" | "dr" | "dps" | "neutral-bar" | "ground-bar" | "din-rail" | "label";
 
 export type QdcComponentDefinition = {
   kind: QdcComponentKind;
