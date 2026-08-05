@@ -201,14 +201,13 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     `;
   }).join("");
 
-  // ALteração aqui nas observações técnicas
   const notes = (data.technicalNotes?.length ? data.technicalNotes : [
     "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
     "Serviço executado por profissional qualificado.",
     "Testes de funcionamento e entrega técnica inclusos."
   ]).map((note) => {
     const formattedNote = safe(note).replace(/\n/g, "<br />");
-    return `<li style="margin-bottom: 14px; line-height: 1.6; white-space: pre-wrap;">${formattedNote}</li>`;
+    return `<li style="margin-bottom: 12px; line-height: 1.6; white-space: pre-wrap;">${formattedNote}</li>`;
   }).join("");
 
   return `
@@ -815,7 +814,6 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       background: #fff;
       padding: 1.5mm;
     }
-
 
     .signature-action {
       display: inline-block;
