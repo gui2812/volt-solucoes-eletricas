@@ -201,14 +201,15 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     `;
   }).join("");
 
+  // A MÁGICA DOS PARÁGRAFOS ACONTECE AQUI:
   const notes = (data.technicalNotes?.length ? data.technicalNotes : [
     "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
     "Serviço executado por profissional qualificado.",
     "Testes de funcionamento e entrega técnica inclusos."
   ]).map((note) => {
-    // Quebra as linhas e preserva o espaçamento do texto
+    // Quebra o texto e insere tags <br> para manter os Enters que você deu
     const formattedNote = safe(note).replace(/\n/g, "<br />");
-    return `<li style="margin-bottom: 8px; line-height: 1.5; white-space: pre-wrap;">${formattedNote}</li>`;
+    return `<li style="margin-bottom: 12px; line-height: 1.6; white-space: pre-wrap;">${formattedNote}</li>`;
   }).join("");
 
   return `
