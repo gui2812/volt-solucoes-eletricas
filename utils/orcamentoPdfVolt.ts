@@ -148,7 +148,6 @@ function signatureVisual(signature: OrcamentoPdfSignature | undefined, fallbackN
   `;
 }
 
-
 function qrCodeUrl(value?: string) {
   if (!value) return "";
   return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data=${encodeURIComponent(value)}`;
@@ -172,7 +171,6 @@ function approvalBlock(data: OrcamentoPdfData) {
     </section>
   `;
 }
-
 
 export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
   const subtotal = data.items.reduce((sum, item) => sum + rowTotal(item), 0);
@@ -203,11 +201,15 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     `;
   }).join("");
 
+  // ALteração aqui nas observações técnicas
   const notes = (data.technicalNotes?.length ? data.technicalNotes : [
     "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
     "Serviço executado por profissional qualificado.",
     "Testes de funcionamento e entrega técnica inclusos."
-  ]).map((note) => `<li>${note}</li>`).join("");
+  ]).map((note) => {
+    const formattedNote = safe(note).replace(/\n/g, "<br />");
+    return `<li style="margin-bottom: 14px; line-height: 1.6; white-space: pre-wrap;">${formattedNote}</li>`;
+  }).join("");
 
   return `
 <!doctype html>
