@@ -201,15 +201,19 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     `;
   }).join("");
 
-  // A MÁGICA DOS PARÁGRAFOS ACONTECE AQUI:
+  // A MÁGICA REAL ACONTECE AQUI
   const notes = (data.technicalNotes?.length ? data.technicalNotes : [
     "Todos os materiais e serviços serão executados conforme boas práticas técnicas aplicáveis.",
     "Serviço executado por profissional qualificado.",
     "Testes de funcionamento e entrega técnica inclusos."
   ]).map((note) => {
-    // Quebra o texto e insere tags <br> para manter os Enters que você deu
-    const formattedNote = safe(note).replace(/\n/g, "<br />");
-    return `<li style="margin-bottom: 12px; line-height: 1.6; white-space: pre-wrap;">${formattedNote}</li>`;
+    // 1. Substitui qualquer barra-n (\n) que o sistema possa ter transformado em texto sem querer.
+    // 2. Divide a sua string gigante sempre que achar um "Enter".
+    // 3. Remove as linhas vazias.
+    const lines = safe(note).replace(/\\n/g, '\n').split(/\r?\n/).filter(line => line.trim() !== "");
+    
+    // 4. Cria um pontinho novo (<li>) pra CADA parágrafo, garantindo espaçamento visual excelente.
+    return lines.map(line => `<li style="margin-bottom: 10px; line-height: 1.6; text-align: justify;">${line.trim()}</li>`).join("");
   }).join("");
 
   return `
