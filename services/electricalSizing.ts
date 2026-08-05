@@ -84,7 +84,34 @@ export function generateMaterialList(results: CircuitResult[], circuits: Circuit
   return materials;
 }
 
+// Essa é a função que estava faltando e travando o seu Vercel
+export function validateQdcProject(qdcProject: any, placedComponents: any[]) {
+  const validations: any[] = [];
+  const usedModules = placedComponents.reduce((sum: number, component: any) => sum + component.modules, 0);
+  
+  if (usedModules > (qdcProject?.modules || 0)) {
+    validations.push({ id: "mod-capacity", message: `Capacidade do quadro excedida: ${usedModules}/${qdcProject.modules} módulos.`, status: "Erro" });
+  }
+
+  if (!placedComponents.some((c: any) => c.kind.includes("breaker"))) {
+    validations.push({ id: "missing-breaker", message: "O quadro não possui nenhum disjuntor de proteção.", status: "Erro" });
+  }
+
+  if (!placedComponents.some((c: any) => c.kind === "dr")) {
+    validations.push({ id: "missing-dr", message: "Falta de DR. Recomendado para proteção contra choques elétricos.", status: "Atenção" });
+  }
+
+  if (!placedComponents.some((c: any) => c.kind === "dps")) {
+    validations.push({ id: "missing-dps", message: "Falta de DPS. Recomendado para proteção contra surtos.", status: "Atenção" });
+  }
+
+  if (validations.length === 0) {
+    validations.push({ id: "all-ok", message: "Quadro validado com sucesso.", status: "OK" });
+  }
+
+  return validations;
+}
+
 export function generateMemorialHtml(calculation: SizingCalculation) {
-    // ... mantido o seu código anterior de PDF, adicionei apenas a lógica de soma dos totais se desejar
-    return ""; // Inclua o seu HTML existente aqui
+    return ""; 
 }
