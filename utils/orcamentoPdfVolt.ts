@@ -7,6 +7,14 @@ export type OrcamentoPdfItem = {
   kind?: "Material" | "Serviço" | "Mão de obra" | "Deslocamento" | "Taxa" | "Outro";
 };
 
+export type OrcamentoPdfMaterial = {
+  category: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  specification?: string;
+};
+
 export type OrcamentoPdfSignature = {
   signerName?: string;
   mode?: "Pendente" | "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
@@ -27,6 +35,7 @@ export type OrcamentoPdfData = {
   service: string;
 
   items: OrcamentoPdfItem[];
+  materials?: OrcamentoPdfMaterial[];
 
   laborValue?: number;
   discountValue?: number;
@@ -172,6 +181,204 @@ function approvalBlock(data: OrcamentoPdfData) {
   `;
 }
 
+function materialsPages(data: OrcamentoPdfData, logoSrc: string) {
+  const materials = (data.materials ?? []).filter((material) => material.description?.trim());
+  if (!materials.length) return "";
+
+  const itemsPerPage = 12;
+  const pageCount = Math.ceil(materials.length / itemsPerPage);
+  const basePageSize = Math.floor(materials.length / pageCount);
+  const pagesWithExtraItem = materials.length % pageCount;
+  let materialOffset = 0;
+  const pages = Array.from({ length: pageCount }, (_, pageIndex) => {
+    const pageSize = basePageSize + (pageIndex < pagesWithExtraItem ? 1 : 0);
+    const page = {
+      startIndex: materialOffset,
+      materials: materials.slice(materialOffset, materialOffset + pageSize)
+    };
+    materialOffset += pageSize;
+    return page;
+  });
+
+  return pages.map((page, pageIndex) => {
+    const rows = page.materials.map((material, index) => `
+      <tr>
+        <td class="td item-number">${String(page.startIndex + index + 1).padStart(2, "0")}</td>
+        <td class="td material-category">${safe(material.category || "Outros")}</td>
+        <td class="td material-description"><strong>${safe(material.description)}</strong></td>
+        <td class="td center">${Number(material.quantity || 0).toLocaleString("pt-BR")}</td>
+        <td class="td center">${safe(material.unit)}</td>
+        <td class="td material-specification">${material.specification?.trim() ? safe(material.specification) : "-"}</td>
+      </tr>
+    `).join("");
+
+    return `
+      <main class="page materials-page">
+        <div class="yellow-cut"></div>
+        <div class="bottom-bar"></div>
+
+        <div class="content">
+          <header class="header">
+            <div class="brand">
+              <div class="logo-box">
+                <img src="${logoSrc}" alt="Volt Soluções Elétricas" />
+              </div>
+              <div class="brand-info">
+                <div class="brand-title">Volt Soluções Elétricas</div>
+                <div class="brand-sub">Relação de materiais</div>
+                <div class="brand-slogan">Energia que conecta. Soluções que protegem.</div>
+              </div>
+            </div>
+
+            <div class="company-contact">
+              <div class="contact-line"><span class="icon">📍</span><span>${safe(data.companyCity || "São Paulo / SP")}</span></div>
+              <div class="contact-line"><span class="icon">☎</span><span>${safe(data.companyPhone || "(11) 98878-3401")}</span></div>
+              <div class="contact-line"><span class="icon">✉</span><span>${safe(data.companyEmail || "solucoeseletricasvolt@gmail.com")}</span></div>
+              <div class="contact-line"><span class="icon">🌐</span><span>${safe(data.companyWebsite || "volt-solucoes-eletricas.vercel.app")}</span></div>
+            </div>
+          </header>
+
+          <section class="materials-heading">
+            <div>
+              <div class="materials-kicker">Lista vinculada ao orçamento</div>
+              <h1>Materiais necessários</h1>
+              <div class="title-line"></div>
+            </div>
+            <div class="materials-document-meta">
+              <span>Orçamento</span>
+              <strong>${safe(data.number)}</strong>
+              <small>Página ${pageIndex + 1} de ${pages.length}</small>
+            </div>
+          </section>
+
+          <section class="materials-client-bar">
+            <div><span>Cliente</span><strong>${safe(data.clientName)}</strong></div>
+            <div><span>Serviço</span><strong>${safe(data.service)}</strong></div>
+            <div><span>Emissão</span><strong>${formatDate(data.date)}</strong></div>
+          </section>
+
+          <section class="materials-intro">
+            <span class="materials-intro-icon">▤</span>
+            <div>
+              <strong>Relação para compra e separação</strong>
+              <p>Os itens abaixo são apresentados separadamente do valor da proposta comercial e não alteram o total do orçamento.</p>
+            </div>
+          </section>
+
+          <section class="materials-table">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 12mm;">Item</th>
+                  <th style="width: 30mm;">Categoria</th>
+                  <th>Descrição</th>
+                  <th style="width: 16mm;">Qtd.</th>
+                  <th style="width: 16mm;">Un.</th>
+                  <th style="width: 42mm;">Especificação</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </section>
+
+          <section class="materials-note">
+            <span>⚡</span>
+            <div>
+              <strong>Conferência antes da compra</strong>
+              <p>Confirmar quantidades, marcas, cores e medidas com o responsável técnico antes da aquisição dos materiais.</p>
+            </div>
+          </section>
+        </div>
+
+        <div class="site-bar"><span>🌐</span><span>${safe(data.companyWebsite || "volt-solucoes-eletricas.vercel.app")}</span></div>
+        <div class="footer-slogan"><b>⚡</b> Energia que conecta. Soluções que protegem.</div>
+      </main>
+    `;
+  }).join("");
+}
+
+function signaturesPage(data: OrcamentoPdfData, logoSrc: string) {
+  const approval = approvalBlock(data);
+  const documentStatus = approval || `
+    <section class="final-document-box">
+      <span class="final-document-icon">✓</span>
+      <div>
+        <div class="approval-kicker">Documento final</div>
+        <h2>Registro de aprovação e assinaturas</h2>
+        <p>Esta página reúne as assinaturas vinculadas ao orçamento e identifica os responsáveis pelo documento.</p>
+      </div>
+    </section>
+  `;
+
+  return `
+    <main class="page signatures-page">
+      <div class="yellow-cut"></div>
+      <div class="bottom-bar"></div>
+
+      <div class="content">
+        <header class="header">
+          <div class="brand">
+            <div class="logo-box"><img src="${logoSrc}" alt="Volt Soluções Elétricas" /></div>
+            <div class="brand-info">
+              <div class="brand-title">Volt Soluções Elétricas</div>
+              <div class="brand-sub">Aprovação e assinaturas</div>
+              <div class="brand-slogan">Energia que conecta. Soluções que protegem.</div>
+            </div>
+          </div>
+
+          <div class="company-contact">
+            <div class="contact-line"><span class="icon">📍</span><span>${safe(data.companyCity || "São Paulo / SP")}</span></div>
+            <div class="contact-line"><span class="icon">☎</span><span>${safe(data.companyPhone || "(11) 98878-3401")}</span></div>
+            <div class="contact-line"><span class="icon">✉</span><span>${safe(data.companyEmail || "solucoeseletricasvolt@gmail.com")}</span></div>
+            <div class="contact-line"><span class="icon">🌐</span><span>${safe(data.companyWebsite || "volt-solucoes-eletricas.vercel.app")}</span></div>
+          </div>
+        </header>
+
+        <section class="signature-page-heading">
+          <div>
+            <div class="materials-kicker">Orçamento ${safe(data.number)}</div>
+            <h1>Aprovação digital</h1>
+            <div class="title-line"></div>
+          </div>
+          <div class="signature-status-card">
+            <span>Status do documento</span>
+            <strong>${safe(data.status)}</strong>
+            <small>${safe(data.clientName)}</small>
+          </div>
+        </section>
+
+        ${documentStatus}
+
+        <div class="signature-message">
+          <span class="shield">✓</span>
+          <span>Segurança em cada detalhe. <b>Energia para o que realmente importa.</b></span>
+        </div>
+
+        <section class="footer-grid">
+          <div class="signature-box">
+            <div class="signature-title">⚡ Responsável técnico</div>
+            ${signatureVisual(data.responsibleSignature, data.responsibleName, false)}
+            <div class="signature-doc">${safe(data.responsibleDocument)}<br />${safe(data.responsibleRole || "Responsável técnico")}</div>
+          </div>
+
+          <div class="signature-box client">
+            <div class="signature-title">👤 Cliente</div>
+            ${signatureVisual(data.clientSignature, data.clientName || "Cliente", true, data.signingUrl)}
+          </div>
+        </section>
+
+        <section class="signature-legal-note">
+          <strong>Validade do registro</strong>
+          <p>As informações desta página pertencem ao orçamento ${safe(data.number)}, emitido em ${formatDate(data.date)}, e devem ser analisadas em conjunto com a proposta comercial e a relação de materiais.</p>
+        </section>
+      </div>
+
+      <div class="site-bar"><span>🌐</span><span>${safe(data.companyWebsite || "volt-solucoes-eletricas.vercel.app")}</span></div>
+      <div class="footer-slogan"><b>⚡</b> Energia que conecta. Soluções que protegem.</div>
+    </main>
+  `;
+}
+
 export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
   const subtotal = data.items.reduce((sum, item) => sum + rowTotal(item), 0);
   const laborValue =
@@ -182,6 +389,8 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
   const total = Math.max(subtotal - discountValue, 0);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const logoSrc = data.logoSrc || "/img/logo.png";
+  const materialsHtml = materialsPages(data, logoSrc);
+  const signaturesHtml = signaturesPage(data, logoSrc);
 
   const itemsRows = data.items.map((item, index) => {
     const totalItem = rowTotal(item);
@@ -738,6 +947,7 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
     }
 
     .summary-row.total {
+      grid-template-columns: 1fr 48mm;
       min-height: 13mm;
       border-bottom: 0;
       text-transform: uppercase;
@@ -751,9 +961,10 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       place-items: center end;
       background: #ffcb2f;
       color: #050505;
-      font-size: 7mm;
+      font-size: 5.5mm;
       letter-spacing: 1px;
       padding-right: 4mm;
+      white-space: nowrap;
     }
 
     .approval-box {
@@ -1025,6 +1236,325 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       color: #ffcb2f;
     }
 
+    .page + .page {
+      page-break-before: always;
+      break-before: page;
+    }
+
+    .budget-page,
+    .materials-page,
+    .signatures-page {
+      height: 297mm;
+      min-height: 297mm;
+    }
+
+    .signature-page-heading {
+      display: grid;
+      grid-template-columns: 1fr 54mm;
+      gap: 8mm;
+      align-items: end;
+      margin-top: 11mm;
+    }
+
+    .signature-page-heading h1 {
+      margin: 2mm 0 0;
+      color: #fff;
+      font-size: 11mm;
+      line-height: 1;
+      font-weight: 950;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    .signature-status-card {
+      border: 1px solid rgba(255, 203, 47, .72);
+      border-radius: 3mm;
+      background: rgba(0,0,0,.38);
+      padding: 4mm;
+      text-align: right;
+    }
+
+    .signature-status-card span,
+    .signature-status-card small {
+      display: block;
+      color: #a1a1aa;
+      font-size: 2.6mm;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .signature-status-card strong {
+      display: inline-flex;
+      margin: 1.5mm 0;
+      border: 1px solid rgba(255,203,47,.72);
+      border-radius: 999px;
+      padding: 1.2mm 3mm;
+      color: #ffcb2f;
+      font-size: 3.2mm;
+      text-transform: uppercase;
+    }
+
+    .final-document-box {
+      display: grid;
+      grid-template-columns: 14mm 1fr;
+      gap: 5mm;
+      align-items: center;
+      margin-top: 12mm;
+      border: 1px solid rgba(255, 203, 47, .65);
+      border-radius: 3mm;
+      background: rgba(255, 203, 47, .08);
+      padding: 6mm;
+    }
+
+    .final-document-icon {
+      display: grid;
+      width: 13mm;
+      height: 13mm;
+      place-items: center;
+      border: .6mm solid #ffcb2f;
+      border-radius: 3mm;
+      color: #ffcb2f;
+      font-size: 6mm;
+      font-weight: 950;
+    }
+
+    .final-document-box h2 {
+      margin: 1.5mm 0 1mm;
+      color: #fff;
+      font-size: 5.5mm;
+      text-transform: uppercase;
+    }
+
+    .final-document-box p {
+      margin: 0;
+      color: #cecece;
+      font-size: 3mm;
+      line-height: 1.4;
+    }
+
+    .signatures-page .signature-message {
+      margin-top: 10mm;
+    }
+
+    .signatures-page .footer-grid {
+      margin-top: 6mm;
+    }
+
+    .signatures-page .signature-box {
+      min-height: 70mm;
+    }
+
+    .signature-legal-note {
+      margin-top: 7mm;
+      border-left: 1mm solid #ffcb2f;
+      border-radius: 0 3mm 3mm 0;
+      background: rgba(255,255,255,.04);
+      padding: 4mm 5mm;
+    }
+
+    .signature-legal-note strong {
+      color: #ffcb2f;
+      font-size: 3mm;
+      text-transform: uppercase;
+    }
+
+    .signature-legal-note p {
+      margin: 1mm 0 0;
+      color: #c9c9c9;
+      font-size: 2.7mm;
+      line-height: 1.4;
+    }
+
+    .materials-heading {
+      display: grid;
+      grid-template-columns: 1fr 48mm;
+      gap: 8mm;
+      align-items: end;
+      margin-top: 8mm;
+    }
+
+    .materials-kicker {
+      color: #ffcb2f;
+      font-size: 3mm;
+      font-weight: 950;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+
+    .materials-heading h1 {
+      margin: 2mm 0 0;
+      color: #fff;
+      font-size: 10mm;
+      line-height: 1;
+      font-weight: 950;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+
+    .materials-document-meta {
+      border: 1px solid rgba(255, 203, 47, .72);
+      border-radius: 3mm;
+      background: rgba(0,0,0,.38);
+      padding: 4mm;
+      text-align: right;
+    }
+
+    .materials-document-meta span,
+    .materials-document-meta small {
+      display: block;
+      color: #a1a1aa;
+      font-size: 2.6mm;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .materials-document-meta strong {
+      display: block;
+      margin: 1mm 0;
+      color: #ffcb2f;
+      font-size: 5mm;
+      letter-spacing: 1px;
+    }
+
+    .materials-client-bar {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr .55fr;
+      gap: 0;
+      margin-top: 5mm;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.26);
+      border-radius: 3mm;
+      background: rgba(0,0,0,.34);
+    }
+
+    .materials-client-bar > div {
+      min-width: 0;
+      padding: 3mm 4mm;
+      border-right: 1px solid rgba(255,255,255,.12);
+    }
+
+    .materials-client-bar > div:last-child {
+      border-right: 0;
+    }
+
+    .materials-client-bar span,
+    .materials-client-bar strong {
+      display: block;
+    }
+
+    .materials-client-bar span {
+      color: #ffcb2f;
+      font-size: 2.5mm;
+      font-weight: 900;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+    }
+
+    .materials-client-bar strong {
+      margin-top: 1mm;
+      overflow: hidden;
+      color: #fff;
+      font-size: 3.1mm;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .materials-intro,
+    .materials-note {
+      display: grid;
+      grid-template-columns: 10mm 1fr;
+      gap: 3mm;
+      align-items: center;
+      margin-top: 5mm;
+      border: 1px solid rgba(255, 203, 47, .42);
+      border-radius: 3mm;
+      background: rgba(255, 203, 47, .07);
+      padding: 3.5mm 4mm;
+    }
+
+    .materials-intro-icon,
+    .materials-note > span {
+      display: grid;
+      width: 8mm;
+      height: 8mm;
+      place-items: center;
+      border-radius: 2mm;
+      background: #ffcb2f;
+      color: #050505;
+      font-size: 4mm;
+      font-weight: 950;
+    }
+
+    .materials-intro strong,
+    .materials-note strong {
+      color: #fff;
+      font-size: 3.2mm;
+    }
+
+    .materials-intro p,
+    .materials-note p {
+      margin: 1mm 0 0;
+      color: #c7c7c7;
+      font-size: 2.7mm;
+      line-height: 1.35;
+    }
+
+    .materials-table {
+      margin-top: 5mm;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.30);
+      border-radius: 3mm;
+      background: rgba(0,0,0,.28);
+    }
+
+    .materials-table th {
+      height: 9mm;
+      padding: 2mm;
+      border-right: 1px solid rgba(255,255,255,.15);
+      border-bottom: 1px solid #ffcb2f;
+      color: #ffcb2f;
+      font-size: 2.75mm;
+      letter-spacing: .35px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .materials-table th:last-child,
+    .materials-table .td:last-child {
+      border-right: 0;
+    }
+
+    .materials-table .td {
+      min-height: 8mm;
+      padding: 2.1mm 2.3mm;
+      font-size: 2.75mm;
+      line-height: 1.25;
+      vertical-align: middle;
+    }
+
+    .materials-table tr:last-child .td {
+      border-bottom: 0;
+    }
+
+    .material-category {
+      color: #ffcb2f;
+      font-weight: 850;
+    }
+
+    .material-description strong {
+      color: #fff;
+    }
+
+    .material-specification {
+      color: #cfcfcf;
+    }
+
+    .materials-note {
+      margin-top: 5mm;
+      border-color: rgba(255,255,255,.22);
+      background: rgba(0,0,0,.32);
+    }
+
     @media print {
       body {
         background: #fff;
@@ -1038,7 +1568,7 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 </head>
 
 <body>
-  <main class="page">
+  <main class="page budget-page">
     <div class="yellow-cut"></div>
     <div class="bottom-bar"></div>
 
@@ -1211,25 +1741,6 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
         </div>
       </section>
 
-      ${approvalBlock(data)}
-
-      <div class="signature-message">
-        <span class="shield">✓</span>
-        <span>Segurança em cada detalhe. <b>Energia para o que realmente importa.</b></span>
-      </div>
-
-      <section class="footer-grid">
-        <div class="signature-box">
-          <div class="signature-title">⚡ Responsável técnico</div>
-          ${signatureVisual(data.responsibleSignature, data.responsibleName, false)}
-          <div class="signature-doc">${safe(data.responsibleDocument)}<br />${safe(data.responsibleRole || "Responsável técnico")}</div>
-        </div>
-
-        <div class="signature-box client">
-          <div class="signature-title">👤 Cliente</div>
-          ${signatureVisual(data.clientSignature, data.clientName || "Cliente", true, data.signingUrl)}
-        </div>
-      </section>
     </div>
 
     <div class="site-bar">
@@ -1241,6 +1752,8 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       <b>⚡</b> Energia que conecta. Soluções que protegem.
     </div>
   </main>
+  ${materialsHtml}
+  ${signaturesHtml}
 </body>
 </html>
 `;
