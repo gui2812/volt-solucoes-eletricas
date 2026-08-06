@@ -1,7 +1,31 @@
-[README.md](https://github.com/user-attachments/files/30790404/README.md)
-# Volt Soluções Elétricas — Sistema Profissional v3
+[README.md](https://github.com/user-attachments/files/30798879/README.md)
+# Volt Soluções Elétricas — Sistema Profissional v4
 
 Projeto profissional em **Next.js + TypeScript + React Three Fiber + Zustand + Tailwind CSS**, preparado para deploy na **Vercel**.
+
+## Orçamentista IA com Gemini
+
+- O editor de orçamentos agora possui um chat que entende a descrição do serviço e faz perguntas antes de calcular.
+- A IA sugere serviços, mão de obra, materiais, deslocamento, prazo, garantia e pagamento.
+- Os preços vêm da tabela interna em `data/voltPricingCatalog.ts`. O Gemini seleciona os códigos, e o servidor confere os valores antes de devolver a proposta.
+- Itens fora da tabela usam horas técnicas ou ficam marcados como material a cotar; a IA não deve inventar preço.
+- A sugestão só entra no orçamento depois da confirmação do usuário e continua totalmente editável.
+- Nome, telefone, e-mail e endereço do cliente não são enviados automaticamente ao Gemini.
+
+### Configuração local
+
+1. Crie uma chave da Gemini API em [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Copie `.env.example` para `.env.local`.
+3. Preencha `GEMINI_API_KEY` sem colocar a chave no código ou no GitHub.
+4. Execute `npm install` e depois `npm run dev`.
+
+O modelo padrão é `gemini-3.6-flash`. Para trocar, altere `GEMINI_MODEL`.
+
+### Configuração na Vercel
+
+No projeto da Vercel, abra **Settings → Environment Variables**, cadastre `GEMINI_API_KEY` e `GEMINI_MODEL` e faça um novo deploy. A chave é usada somente pela rota segura do servidor.
+
+Antes de usar em propostas reais, revise os valores, custos e regras em `data/voltPricingCatalog.ts` para refletirem a tabela praticada pela Volt.
 
 ## Lista de materiais no orçamento
 
