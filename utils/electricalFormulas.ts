@@ -1,39 +1,15 @@
-import type { CableMaterial, CircuitStatus, ElectricalSystem, InsulationType } from "@/types/electrical";
+import type {
+  CableMaterial,
+  CircuitPhaseConfiguration,
+  CircuitStatus,
+  CircuitType,
+  ElectricalSystem,
+  InsulationType
+} from "@/types/electrical";
 
-/**
- * Fórmula base de corrente:
- * Monofásico/Bifásico: I = P / (V × FP)
- * Trifásico: I = P / (√3 × V × FP)
- *
- * Observação: esta estrutura já fica preparada para evoluir com critérios completos da NBR 5410.
- */
-export function calculateCurrent(
-  totalPowerWatts: number,
-  voltage: number,
-  powerFactor = 1,
-  system: ElectricalSystem = "Monofásico"
-) {
-  const safeVoltage = Math.max(voltage, 1);
-  const safePowerFactor = Math.max(powerFactor, 0.1);
+export const BREAKER_RATINGS = [6, 10, 16, 20, 25, 32, 40, 50, 63, 70, 80, 100, 125] as const;
 
-  if (system === "Trifásico") {
-    return totalPowerWatts / (Math.sqrt(3) * safeVoltage * safePowerFactor);
-  }
-
-  return totalPowerWatts / (safeVoltage * safePowerFactor);
-}
-
-const breakerRatings = [6, 10, 16, 20, 25, 32, 40, 50, 63, 70, 80, 100, 125];
-
-/**
- * Seleciona o disjuntor comercial imediatamente acima da corrente calculada.
- * Critérios de seletividade, curva e fabricante devem ser refinados na etapa NBR 5410.
- */
-export function recommendBreaker(current: number) {
-  return breakerRatings.find((rating) => rating >= current * 1.15) ?? breakerRatings[breakerRatings.length - 1];
-}
-
-const copperCapacity: Record<number, number> = {
+const COPPER_CAPACITY: Record<number, number> = {
   1.5: 15.5,
   2.5: 21,
   4: 28,
@@ -47,7 +23,7 @@ const copperCapacity: Record<number, number> = {
   95: 207
 };
 
-const aluminumCapacity: Record<number, number> = {
+const ALUMINUM_CAPACITY: Record<number, number> = {
   2.5: 16,
   4: 22,
   6: 28,
@@ -59,6 +35,47 @@ const aluminumCapacity: Record<number, number> = {
   70: 133,
   95: 161
 };
+
+export function calculateCurrent(
+  totalPowerWatts: number,
+  voltage: number,
+  powerFactor = 1,
+  phaseConfiguration: CircuitPhaseConfiguration = "F-N"
+) {
+  const safeVoltage = Math.max(Number(voltage) || 0, 1);
+  const safePowerFactor = Math.min(Math.max(Number(powerFactor) || 1, 0.1), 1);
+  const divisor = phaseConfiguration === "3F"
+    ? Math.sqrt(3) * safeVoltage * safePowerFactor
+    : safeVoltage * safePowerFactor;
+
+  return Math.max(Number(totalPowerWatts) || 0, 0) / divisor;
+}
+
+export function inferPhaseConfiguration(
+  voltage: number,
+  system: ElectricalSystem,
+  preferred?: CircuitPhaseConfiguration
+): CircuitPhaseConfiguration {
+  if (preferred) return preferred;
+  if (system === "Monofásico") return "F-N";
+  if (system === "Trifásico" && voltage >= 360) return "3F";
+  if (voltage >= 200) return "F-F";
+  return "F-N";
+}
+
+export function breakerPolesFor(
+  phaseConfiguration: CircuitPhaseConfiguration,
+  neutralRequired = false
+): 1 | 2 | 3 | 4 {
+  if (phaseConfiguration === "3F") return neutralRequired ? 4 : 3;
+  return phaseConfiguration === "F-F" ? 2 : 1;
+}
+
+export function breakerCurveFor(type: CircuitType): "B" | "C" | "D" {
+  if (type === "Motor") return "D";
+  if (type === "Iluminação") return "B";
+  return "C";
+}
 
 export function temperatureCorrection(ambientTemperature: number, insulation: InsulationType) {
   if (ambientTemperature <= 30) return 1;
@@ -83,75 +100,118 @@ export function groupingCorrection(groupedConductors: number) {
   return 0.6;
 }
 
-/**
- * A corrente corrigida considera agrupamento e temperatura:
- * Ic = I / (F temperatura × F agrupamento)
- */
-export function recommendCableSection(
-  current: number,
+export function correctedCableCapacity(
+  section: number,
   material: CableMaterial,
   insulation: InsulationType,
   ambientTemperature: number,
   groupedConductors: number
 ) {
-  const table = material === "Cobre" ? copperCapacity : aluminumCapacity;
-  const correctedCurrent = current / (temperatureCorrection(ambientTemperature, insulation) * groupingCorrection(groupedConductors));
+  const table = material === "Cobre" ? COPPER_CAPACITY : ALUMINUM_CAPACITY;
+  const baseCapacity = table[section] ?? 0;
+  return baseCapacity
+    * temperatureCorrection(ambientTemperature, insulation)
+    * groupingCorrection(groupedConductors);
+}
 
-  const section = Object.entries(table).find(([, capacity]) => capacity >= correctedCurrent)?.[0];
-  return section ? Number(section) : Number(Object.keys(table).at(-1));
+function minimumSection(type: CircuitType, material: CableMaterial) {
+  if (material === "Alumínio") return type === "Iluminação" ? 2.5 : 4;
+  return type === "Iluminação" ? 1.5 : 2.5;
 }
 
 /**
- * Queda de tensão simplificada:
- * ΔV% = (2 × ρ × L × I × 100) / (S × V)
- * ρ cobre ≈ 0,0175 Ω.mm²/m
- * ρ alumínio ≈ 0,0282 Ω.mm²/m
- *
- * Para trifásico, uma futura versão pode aplicar √3 no lugar do fator 2.
+ * Seleciona cabo e disjuntor juntos. A combinação só é aceita quando
+ * Ib ≤ In ≤ Iz dentro da tabela preliminar do sistema.
  */
+export function recommendCableAndBreaker(options: {
+  current: number;
+  type: CircuitType;
+  material: CableMaterial;
+  insulation: InsulationType;
+  ambientTemperature: number;
+  groupedConductors: number;
+}) {
+  const table = options.material === "Cobre" ? COPPER_CAPACITY : ALUMINUM_CAPACITY;
+  const sections = Object.keys(table).map(Number).sort((a, b) => a - b);
+  const minSection = minimumSection(options.type, options.material);
+  const designCurrent = Math.max(options.current, 0);
+
+  for (const section of sections.filter((value) => value >= minSection)) {
+    const capacity = correctedCableCapacity(
+      section,
+      options.material,
+      options.insulation,
+      options.ambientTemperature,
+      options.groupedConductors
+    );
+    const breaker = BREAKER_RATINGS.find((rating) => rating >= designCurrent && rating <= capacity);
+    if (breaker) return { section, breaker, correctedCapacity: capacity, supported: true };
+  }
+
+  const section = sections.at(-1) ?? minSection;
+  const correctedCapacity = correctedCableCapacity(
+    section,
+    options.material,
+    options.insulation,
+    options.ambientTemperature,
+    options.groupedConductors
+  );
+  const breaker = BREAKER_RATINGS.filter((rating) => rating <= correctedCapacity).at(-1) ?? BREAKER_RATINGS[0];
+  return { section, breaker, correctedCapacity, supported: false };
+}
+
 export function calculateVoltageDropPercent(
   current: number,
   lengthMeters: number,
   cableSection: number,
   voltage: number,
-  material: CableMaterial
+  material: CableMaterial,
+  phaseConfiguration: CircuitPhaseConfiguration
 ) {
   const resistivity = material === "Cobre" ? 0.0175 : 0.0282;
   const safeSection = Math.max(cableSection, 0.1);
   const safeVoltage = Math.max(voltage, 1);
-  return (2 * resistivity * lengthMeters * current * 100) / (safeSection * safeVoltage);
+  const routeFactor = phaseConfiguration === "3F" ? Math.sqrt(3) : 2;
+  return (routeFactor * resistivity * Math.max(lengthMeters, 0) * current * 100) / (safeSection * safeVoltage);
 }
 
-export function recommendDr(circuitType: string, current: number) {
+export function recommendDr(circuitType: CircuitType, breaker: number, poles: number) {
   const needs30mA = ["TUG", "Chuveiro", "Ar-condicionado", "TUE"].includes(circuitType);
-  const rating = current <= 25 ? 40 : current <= 40 ? 63 : 80;
-  return needs30mA ? `DR ${rating}A / 30mA` : "Avaliar necessidade";
+  const rating = [25, 40, 63, 80, 100, 125].find((value) => value >= breaker) ?? 125;
+  return needs30mA
+    ? `DR ${poles > 2 ? 4 : 2}P ${rating}A / 30mA (confirmar agrupamento)`
+    : "Avaliar DR conforme circuito e local";
 }
 
 export function recommendDps(voltage: number) {
-  if (voltage <= 127) return "DPS Classe II 175V";
-  if (voltage <= 220) return "DPS Classe II 275V";
-  return "DPS Classe II 460V";
+  if (voltage <= 127) return "DPS Classe II 175V (Uc a confirmar)";
+  if (voltage <= 240) return "DPS Classe II 275V (Uc a confirmar)";
+  return "DPS Classe II 460V (Uc a confirmar)";
 }
 
-export function validateCircuit(current: number, breaker: number, voltageDropPercent: number, cableSection: number): {
-  status: CircuitStatus;
-  warnings: string[];
-} {
+export function validateCircuit(options: {
+  current: number;
+  breaker: number;
+  correctedCapacity: number;
+  voltageDropPercent: number;
+  supported: boolean;
+  lengthMeters: number;
+  phaseConfiguration: CircuitPhaseConfiguration;
+}) : { status: CircuitStatus; warnings: string[] } {
+  const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (current > breaker) warnings.push("Corrente calculada acima do disjuntor recomendado.");
-  if (voltageDropPercent > 4) warnings.push("Queda de tensão acima de 4%.");
-  if (cableSection >= 95) warnings.push("Circuito com corrente elevada. Revisar projeto.");
-  if (voltageDropPercent > 7) warnings.push("Queda de tensão crítica.");
+  if (!options.supported) errors.push("A tabela preliminar não encontrou combinação de cabo e disjuntor para esta corrente.");
+  if (options.current > options.breaker) errors.push("Ib é maior que In: o disjuntor ficou abaixo da corrente de projeto.");
+  if (options.breaker > options.correctedCapacity) errors.push("In é maior que Iz: o disjuntor não protege o condutor nas condições informadas.");
+  if (options.voltageDropPercent > 7) errors.push("Queda de tensão calculada acima de 7%.");
+  else if (options.voltageDropPercent > 4) warnings.push("Queda de tensão acima do limite preliminar de 4% adotado pela Volt.");
+  if (options.lengthMeters <= 0) warnings.push("Comprimento do circuito não informado; queda de tensão e materiais precisam ser revisados.");
+  if (options.phaseConfiguration === "3F") warnings.push("Confirmar sequência de fases, carga equilibrada e necessidade de neutro.");
 
-  if (warnings.some((warning) => warning.includes("crítica") || warning.includes("acima do disjuntor"))) {
-    return { status: "Erro", warnings };
-  }
+  warnings.push("Confirmar corrente de curto-circuito presumida e capacidade de interrupção do disjuntor no local.");
 
-  if (warnings.length > 0) {
-    return { status: "Atenção", warnings };
-  }
-
-  return { status: "OK", warnings: ["Circuito dentro dos critérios iniciais."] };
+  if (errors.length) return { status: "Erro", warnings: [...errors, ...warnings] };
+  if (warnings.length) return { status: "Atenção", warnings };
+  return { status: "OK", warnings: ["Combinação preliminar Ib ≤ In ≤ Iz atendida."] };
 }
