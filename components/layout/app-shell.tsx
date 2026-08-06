@@ -40,7 +40,7 @@ const links = [
   { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Gestão" },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Gestão" },
   { href: "/backup", label: "Backup", icon: Database, group: "Sistema" },
-  { href: "/circuitos", label: "QDC 3D", icon: CircuitBoard, group: "Sistema" }
+  { href: "/circuitos", label: "Central Técnica IA", icon: CircuitBoard, group: "Sistema" }
 ];
 
 const groups = ["Principal", "Operação", "Gestão", "Sistema"];
@@ -147,7 +147,7 @@ export function AppShell({ children }: AppShellProps) {
               <div className="min-w-0">
                 <p className="truncate text-sm font-black text-volt-yellow">Operação online</p>
                 <p className="mt-1 text-xs leading-5 text-zinc-400">
-                  Gestão, OS, financeiro e QDC
+                  Gestão, IA técnica e operação
                 </p>
               </div>
             )}
