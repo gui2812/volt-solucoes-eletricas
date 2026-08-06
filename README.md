@@ -1,7 +1,18 @@
-[README.md](https://github.com/user-attachments/files/30798879/README.md)
+[README.md](https://github.com/user-attachments/files/30801416/README.md)
 # Volt Soluções Elétricas — Sistema Profissional v4
 
 Projeto profissional em **Next.js + TypeScript + React Three Fiber + Zustand + Tailwind CSS**, preparado para deploy na **Vercel**.
+
+## Central Técnica IA — levantamento e pré-dimensionamento
+
+- A antiga área de Sistemas Técnicos foi reaproveitada como **Central Técnica IA**.
+- O Assistente Técnico conversa pelo Gemini, coleta ambientes, medidas, tensão, cargas, potência de placa e distâncias e só aplica o levantamento após confirmação.
+- A IA não escolhe cabos ou disjuntores. Um motor determinístico calcula corrente, combinação `Ib ≤ In ≤ Iz`, queda de tensão, polos, curva preliminar e balanceamento de fases.
+- A lista de materiais agrega cabos, disjuntores, infraestrutura, DR, DPS, quadro, tomadas, pontos de iluminação e interruptores, sempre com observações de conferência.
+- O resultado pode gerar um QDC visual, um memorial de pré-dimensionamento em PDF e um novo orçamento já preenchido com a relação de materiais.
+- Critérios e premissas estão identificados pela versão `VOLT-BT-2026.1` e foram escritos como orientação, não como promessa de conformidade automática.
+
+Antes da execução, um profissional habilitado deve confirmar as condições reais, método de instalação, temperatura, agrupamento, aterramento, harmônicas, partida de motores, corrente de curto-circuito, capacidade de interrupção, seletividade, regras da concessionária e a edição licenciada e vigente das normas aplicáveis.
 
 ## Orçamentista IA com Gemini
 
