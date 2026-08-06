@@ -492,17 +492,40 @@ export default function CotacoesPage() {
   const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
+    let nextQuotes = quotesSeed;
     try {
       const saved = localStorage.getItem("volt_cotacoes_premium_v1");
       if (saved) {
         const parsed = JSON.parse(saved) as Quote[];
         if (Array.isArray(parsed)) {
-          setQuotes(parsed);
-          setSelected(parsed[0] ?? null);
+          nextQuotes = parsed;
         }
       }
+
+      const pendingImport = localStorage.getItem("volt_quote_import_v1");
+      if (pendingImport) {
+        const imported = JSON.parse(pendingImport) as Quote;
+        if (imported?.id && Array.isArray(imported.items)) {
+          nextQuotes = [imported, ...nextQuotes.filter((item) => item.id !== imported.id)];
+          setSelected(imported);
+          setEditingKey(null);
+          setDraft({
+            ...imported,
+            items: imported.items.map((item) => ({ ...item })),
+            materials: (imported.materials ?? []).map((material) => ({ ...material }))
+          });
+          setActiveTab("Novo Orçamento");
+          setEditOpen(true);
+        }
+        localStorage.removeItem("volt_quote_import_v1");
+      } else {
+        setSelected(nextQuotes[0] ?? null);
+      }
+
+      setQuotes(nextQuotes);
     } catch {
       setQuotes(quotesSeed);
+      setSelected(quotesSeed[0] ?? null);
     } finally {
       setStorageReady(true);
     }
