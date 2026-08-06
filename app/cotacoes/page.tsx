@@ -1,8 +1,10 @@
 "use client";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { AiEstimatorPanel } from "@/components/cotacoes/ai-estimator-panel";
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
 import { checkRemoteSignatureByToken, checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
+import type { EstimatorResult } from "@/types/orcamentista";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -2054,6 +2056,57 @@ function QuoteEditorModal({
     updateSignature("clientSignature", makeSignature(draft.contact || draft.client || "", "Rubrica predefinida", undefined, "Clássica"));
   }
 
+  function applyEstimatorSuggestion(result: EstimatorResult, mode: "replace" | "append") {
+    setDraft((current) => {
+      if (!current) return current;
+
+      const generatedItems: QuoteItem[] = result.items.map((item) => ({
+        kind: item.kind,
+        code: item.code,
+        description: item.description,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        unitCost: item.unitCost,
+        discount: item.discount
+      }));
+      const generatedMaterials: QuoteMaterial[] = result.materials.map((material) => ({ ...material }));
+      const currentIsPlaceholder = current.items.length === 1
+        && current.items[0].unitPrice === 0
+        && /mão de obra|novo serviço/i.test(current.items[0].description);
+      const baseItems = mode === "append" && !currentIsPlaceholder ? current.items : [];
+      const baseMaterials = mode === "append" ? current.materials ?? [] : [];
+      const seenMaterials = new Set<string>();
+      const materials = [...baseMaterials, ...generatedMaterials].filter((material) => {
+        const key = `${material.description.toLocaleLowerCase("pt-BR")}|${material.unit.toLocaleLowerCase("pt-BR")}`;
+        if (seenMaterials.has(key)) return false;
+        seenMaterials.add(key);
+        return true;
+      });
+      const notesFromAi = [
+        result.assumptions.length ? `Premissas da estimativa: ${result.assumptions.join("; ")}.` : "",
+        result.warnings.length ? `Pontos a confirmar: ${result.warnings.join("; ")}.` : ""
+      ].filter(Boolean).join("\n");
+      const notes = notesFromAi && !current.notes.includes(notesFromAi)
+        ? [current.notes, notesFromAi].filter(Boolean).join("\n\n")
+        : current.notes;
+      const historyLine = `Estimativa do Orçamentista IA aplicada em ${new Date().toLocaleDateString("pt-BR")}`;
+
+      return {
+        ...current,
+        title: result.title || current.title,
+        serviceType: result.serviceType || current.serviceType,
+        deadline: result.deadline || current.deadline,
+        warranty: result.warranty || current.warranty,
+        payment: result.paymentSuggestion || current.payment,
+        items: [...baseItems, ...generatedItems],
+        materials,
+        notes,
+        history: current.history.includes(historyLine) ? current.history : [...current.history, historyLine]
+      };
+    });
+  }
+
 
   const total = quoteTotal(draft);
   const cost = quoteCost(draft);
@@ -2083,6 +2136,26 @@ function QuoteEditorModal({
             <button onClick={onSave} className="btn-primary">Salvar orçamento</button>
           </div>
         </div>
+
+        <AiEstimatorPanel
+          currentQuote={{
+            title: draft.title,
+            serviceType: draft.serviceType,
+            priority: draft.priority,
+            deadline: draft.deadline,
+            warranty: draft.warranty,
+            payment: draft.payment,
+            items: draft.items.map((item) => ({
+              kind: item.kind,
+              description: item.description,
+              unit: item.unit,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice
+            })),
+            materials: (draft.materials ?? []).map((material) => ({ ...material }))
+          }}
+          onApply={applyEstimatorSuggestion}
+        />
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_.42fr]">
           <div className="space-y-5">
