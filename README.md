@@ -1,6 +1,15 @@
+[README.md](https://github.com/user-attachments/files/30790404/README.md)
 # Volt Soluções Elétricas — Sistema Profissional v3
 
 Projeto profissional em **Next.js + TypeScript + React Three Fiber + Zustand + Tailwind CSS**, preparado para deploy na **Vercel**.
+
+## Lista de materiais no orçamento
+
+- O editor de orçamentos possui uma área separada para os materiais necessários.
+- A lista pode ser preenchida item a item, copiada dos itens de material ou importada em lote.
+- Esses materiais não alteram o valor total do orçamento.
+- O PDF gera páginas próprias para a relação de materiais, com paginação automática e o mesmo padrão visual da proposta comercial.
+- A aprovação e as assinaturas ficam organizadas em uma página exclusiva.
 
 ## Correções da v3
 
