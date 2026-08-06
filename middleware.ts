@@ -59,6 +59,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "Sua sessão expirou. Entre novamente para usar o Orçamentista IA." },
+      { status: 401 }
+    );
+  }
+
   const loginUrl = new URL("/login", request.url);
   loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
 
@@ -77,6 +84,7 @@ export const config = {
     "/relatorios/:path*",
     "/backup/:path*",
     "/sistemas/:path*",
-    "/circuitos/:path*"
+    "/circuitos/:path*",
+    "/api/ai/:path*"
   ]
 };
