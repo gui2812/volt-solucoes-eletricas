@@ -62,6 +62,14 @@ type QuoteItem = {
   discount: number;
 };
 
+type QuoteMaterial = {
+  category: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  specification: string;
+};
+
 type Quote = {
   id: string;
   client: string;
@@ -83,6 +91,7 @@ type Quote = {
   os: string;
   reasonLost?: string;
   items: QuoteItem[];
+  materials?: QuoteMaterial[];
   history: string[];
   notes: string;
   responsibleSignature?: SignatureData;
@@ -255,6 +264,18 @@ const quotesSeed: Quote[] = [
 
 const tabs = ["Visão Geral", "Lista de Orçamentos", "Novo Orçamento", "Pipeline Comercial", "Modelos de Proposta", "Itens e Serviços", "Aprovações", "Relatórios"];
 const pipelineColumns: QuoteStatus[] = ["Rascunho", "Enviada", "Aguardando retorno", "Em negociação", "Aprovada", "Recusada", "Vencida", "Convertida em OS"];
+const materialCategories = [
+  "Cabos",
+  "Infraestrutura",
+  "Quadro elétrico",
+  "Proteção",
+  "Disjuntores",
+  "Barramentos",
+  "Tomadas e interruptores",
+  "Conexões",
+  "Consumíveis",
+  "Outros"
+];
 
 const statusColors: Record<QuoteStatus, string> = {
   Rascunho: "bg-white/10 text-zinc-300 border-white/10",
@@ -496,7 +517,11 @@ export default function CotacoesPage() {
 
   function openEditor(item: Quote) {
     setEditingKey(getRecordKey(item));
-    setDraft({ ...item });
+    setDraft({
+      ...item,
+      items: item.items.map((quoteItem) => ({ ...quoteItem })),
+      materials: (item.materials ?? []).map((material) => ({ ...material }))
+    });
     setEditOpen(true);
   }
 
@@ -531,6 +556,7 @@ export default function CotacoesPage() {
       title: `${selected.title} cópia`,
       status: "Rascunho",
       os: "Sem OS",
+      materials: (selected.materials ?? []).map((material) => ({ ...material })),
       history: [...selected.history, "Orçamento duplicado"]
     };
     setSelected(copy);
@@ -596,7 +622,8 @@ export default function CotacoesPage() {
           status: quote.status,
           responsible: quote.responsible,
           notes: quote.notes,
-          items: quote.items
+          items: quote.items,
+          materials: quote.materials ?? []
         });
 
         signingUrl = result.signingUrl;
@@ -650,6 +677,14 @@ export default function CotacoesPage() {
           unitPrice: item.unitPrice,
           total: item.quantity * item.unitPrice * (1 - item.discount / 100),
           kind: item.kind
+        })),
+
+        materials: (approvalQuote.materials ?? []).map((material) => ({
+          category: material.category,
+          description: material.description,
+          quantity: material.quantity,
+          unit: material.unit,
+          specification: material.specification
         })),
 
         laborValue,
@@ -749,6 +784,14 @@ export default function CotacoesPage() {
           unitPrice: item.unitPrice,
           total: item.quantity * item.unitPrice * (1 - item.discount / 100),
           kind: item.kind
+        })),
+
+        materials: (pdfQuote.materials ?? []).map((material) => ({
+          category: material.category,
+          description: material.description,
+          quantity: material.quantity,
+          unit: material.unit,
+          specification: material.specification
         })),
 
         laborValue,
@@ -1161,9 +1204,12 @@ export default function CotacoesPage() {
     }
 
     const osNumber = `OS-${String(Date.now()).slice(-5)}`;
-    const materials = quoteToConvert.items
+    const pricedMaterials = quoteToConvert.items
       .filter((item) => item.kind === "Material")
       .map((item) => `${item.description} - ${item.quantity} ${item.unit}`);
+    const listedMaterials = (quoteToConvert.materials ?? [])
+      .map((item) => `${item.description} - ${item.quantity} ${item.unit}`);
+    const materials = Array.from(new Set([...pricedMaterials, ...listedMaterials]));
 
     const serviceOrder = {
       id: osNumber,
@@ -1295,6 +1341,7 @@ export default function CotacoesPage() {
       items: [
         { kind: "Serviço", code: "SRV-001", description: "Mão de obra / serviço técnico", unit: "serv.", quantity: 1, unitPrice: 0, unitCost: 0, discount: 0 }
       ],
+      materials: [],
       history: ["Orçamento criado"],
       notes: "",
       responsibleSignature: makeSignature("Guilherme Santana", "Rubrica predefinida"),
@@ -1845,6 +1892,8 @@ function QuoteEditorModal({
   onPdf: () => void;
   whatsappLink: string;
 }) {
+  const [bulkMaterialsText, setBulkMaterialsText] = useState("");
+
   function updateQuote<K extends keyof Quote>(key: K, value: Quote[K]) {
     setDraft((current) => current ? { ...current, [key]: value } : current);
   }
@@ -1883,6 +1932,110 @@ function QuoteEditorModal({
       if (!current) return current;
       return { ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) };
     });
+  }
+
+  function updateMaterial<K extends keyof QuoteMaterial>(index: number, key: K, value: QuoteMaterial[K]) {
+    setDraft((current) => {
+      if (!current) return current;
+      const materials = current.materials ?? [];
+
+      return {
+        ...current,
+        materials: materials.map((material, materialIndex) => materialIndex === index ? { ...material, [key]: value } : material)
+      };
+    });
+  }
+
+  function addMaterial() {
+    setDraft((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        materials: [
+          ...(current.materials ?? []),
+          { category: "Outros", description: "Novo material", quantity: 1, unit: "un", specification: "" }
+        ]
+      };
+    });
+  }
+
+  function removeMaterial(index: number) {
+    setDraft((current) => {
+      if (!current) return current;
+      return { ...current, materials: (current.materials ?? []).filter((_, materialIndex) => materialIndex !== index) };
+    });
+  }
+
+  function inferMaterialCategory(description: string) {
+    const normalized = description.toLocaleLowerCase("pt-BR");
+    if (/cabo|fio/.test(normalized)) return "Cabos";
+    if (/eletroduto|curva|luva|canaleta|condulete/.test(normalized)) return "Infraestrutura";
+    if (/quadro|caixa de distribuição/.test(normalized)) return "Quadro elétrico";
+    if (/\bdr\b|dps|proteção/.test(normalized)) return "Proteção";
+    if (/disjuntor/.test(normalized)) return "Disjuntores";
+    if (/barramento/.test(normalized)) return "Barramentos";
+    if (/tomada|interruptor|placa 4x/.test(normalized)) return "Tomadas e interruptores";
+    if (/conector|wago|borne/.test(normalized)) return "Conexões";
+    if (/fita|abraçadeira|bucha|parafuso|consumível/.test(normalized)) return "Consumíveis";
+    return "Outros";
+  }
+
+  function importPricedMaterials() {
+    const imported = draft.items
+      .filter((item) => item.kind === "Material")
+      .map((item) => ({
+        category: inferMaterialCategory(item.description),
+        description: item.description,
+        quantity: item.quantity,
+        unit: item.unit,
+        specification: ""
+      }));
+
+    if (!imported.length) {
+      alert("Não há itens do tipo Material para copiar.");
+      return;
+    }
+
+    setDraft((current) => current ? { ...current, materials: [...(current.materials ?? []), ...imported] } : current);
+  }
+
+  function importBulkMaterials() {
+    const lines = bulkMaterialsText
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*[•●▪*-]\s*/, "").trim())
+      .filter(Boolean);
+
+    if (!lines.length) return;
+
+    let currentCategory = "Outros";
+    const parsed: QuoteMaterial[] = [];
+
+    lines.forEach((line) => {
+      const category = materialCategories.find((item) => item.toLocaleLowerCase("pt-BR") === line.replace(/:$/, "").toLocaleLowerCase("pt-BR"));
+      if (category) {
+        currentCategory = category;
+        return;
+      }
+
+      const match = line.match(/^(.*?)\s*(?:[-–—]\s*)?(\d+(?:[.,]\d+)?)\s*(un(?:idade)?s?\.?|m(?:²|2)?|kg|g|l|rolos?|pacotes?|kits?|caixas?|cx|pçs?|pcs?)\s*(?:[-–—]\s*(.*))?$/i);
+      const description = (match?.[1] || line).trim();
+      const rawUnit = (match?.[3] || "un").toLocaleLowerCase("pt-BR").replace("m2", "m²");
+      const normalizedUnit = /^un/.test(rawUnit) ? "un" : /^pacote/.test(rawUnit) ? "pacote" : /^rolo/.test(rawUnit) ? "rolo" : /^kit/.test(rawUnit) ? "kit" : /^caixa|^cx/.test(rawUnit) ? "caixa" : /^pç|^pc/.test(rawUnit) ? "pç" : rawUnit;
+
+      parsed.push({
+        category: currentCategory === "Outros" ? inferMaterialCategory(description) : currentCategory,
+        description,
+        quantity: match ? Number(match[2].replace(",", ".")) : 1,
+        unit: normalizedUnit,
+        specification: (match?.[4] || "").trim()
+      });
+    });
+
+    if (!parsed.length) return;
+
+    setDraft((current) => current ? { ...current, materials: [...(current.materials ?? []), ...parsed] } : current);
+    setBulkMaterialsText("");
   }
 
   function updateHistory(raw: string) {
@@ -2110,6 +2263,93 @@ function QuoteEditorModal({
                     </div>
                   );
                 })}
+              </div>
+            </section>
+
+            <section className="rounded-[2rem] border border-volt-yellow/25 bg-volt-yellow/[.04] p-5">
+              <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Materiais necessários</p>
+                  <h3 className="mt-1 text-xl font-black">Relação de materiais do serviço</h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
+                    Esta lista sai em uma página própria no PDF e não altera o valor do orçamento. Use-a para materiais fornecidos pelo cliente ou separados para a execução.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={importPricedMaterials} className="btn-ghost inline-flex items-center gap-2">
+                    <Package size={16} /> Copiar itens de material
+                  </button>
+                  <button type="button" onClick={addMaterial} className="btn-primary inline-flex items-center gap-2">
+                    <Plus size={16} /> Adicionar material
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-3xl border border-white/10 bg-black/30 p-4">
+                <p className="text-sm font-black text-zinc-200">Adicionar vários de uma vez</p>
+                <p className="mt-1 text-xs leading-5 text-zinc-600">
+                  Cole um material por linha. Você também pode usar títulos como “Cabos” ou “Disjuntores” e linhas no formato “Cabo flexível 2,5 mm² - 100 m”.
+                </p>
+                <textarea
+                  value={bulkMaterialsText}
+                  onChange={(event) => setBulkMaterialsText(event.target.value)}
+                  rows={5}
+                  placeholder={'Cabos\nCabo flexível 750 V 1,5 mm² vermelho - 100 m\nCabo flexível 750 V 2,5 mm² azul - 100 m'}
+                  className="mt-3 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
+                />
+                <button type="button" onClick={importBulkMaterials} disabled={!bulkMaterialsText.trim()} className="btn-ghost mt-3 disabled:cursor-not-allowed disabled:opacity-40">
+                  Importar lista colada
+                </button>
+              </div>
+
+              <datalist id="volt-material-categories">
+                {materialCategories.map((category) => <option key={category} value={category} />)}
+              </datalist>
+
+              <div className="mt-5 space-y-4">
+                {(draft.materials ?? []).length === 0 && (
+                  <div className="rounded-3xl border border-dashed border-white/15 bg-black/20 px-5 py-10 text-center">
+                    <Package className="mx-auto text-volt-yellow" size={28} />
+                    <p className="mt-3 font-black">Nenhum material listado</p>
+                    <p className="mt-1 text-sm text-zinc-600">Adicione manualmente ou cole a lista completa acima.</p>
+                  </div>
+                )}
+
+                {(draft.materials ?? []).map((material, index) => (
+                  <div key={`${material.description}-${index}`} className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-volt-yellow font-black text-black">{index + 1}</span>
+                        <div>
+                          <p className="font-black">{material.description || "Material sem descrição"}</p>
+                          <p className="text-xs text-zinc-600">Item da relação de materiais</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => removeMaterial(index)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-black text-red-200">
+                        Remover
+                      </button>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-6">
+                      <EditorField label="Categoria">
+                        <input list="volt-material-categories" value={material.category} onChange={(event) => updateMaterial(index, "category", event.target.value)} className="field-input" />
+                      </EditorField>
+                      <EditorField label="Descrição" full>
+                        <input value={material.description} onChange={(event) => updateMaterial(index, "description", event.target.value)} className="field-input" />
+                      </EditorField>
+                      <EditorField label="Qtd.">
+                        <input type="number" min="0" step="0.01" value={material.quantity} onChange={(event) => updateMaterial(index, "quantity", Number(event.target.value))} className="field-input" />
+                      </EditorField>
+                      <EditorField label="Unidade">
+                        <input value={material.unit} onChange={(event) => updateMaterial(index, "unit", event.target.value)} className="field-input" />
+                      </EditorField>
+                      <EditorField label="Especificação / observação" full>
+                        <input value={material.specification} onChange={(event) => updateMaterial(index, "specification", event.target.value)} placeholder="Marca, cor, modelo ou aplicação" className="field-input" />
+                      </EditorField>
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
 
