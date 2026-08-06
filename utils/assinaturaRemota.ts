@@ -10,6 +10,14 @@ export type RemoteSignatureQuoteItem = {
   total?: number;
 };
 
+export type RemoteSignatureMaterial = {
+  category: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  specification?: string;
+};
+
 export type RemoteSignatureQuoteSnapshot = {
   id: string;
   title: string;
@@ -27,6 +35,7 @@ export type RemoteSignatureQuoteSnapshot = {
   responsible?: string;
   notes?: string;
   items: RemoteSignatureQuoteItem[];
+  materials?: RemoteSignatureMaterial[];
 };
 
 export type RemoteSignatureMode =
