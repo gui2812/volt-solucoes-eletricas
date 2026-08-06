@@ -1,21 +1,29 @@
 "use client";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { DimensioningAiPanel } from "@/components/sistemas/dimensioning-ai-panel";
+import type { DimensioningAiResult } from "@/types/dimensioning-ai";
 import type {
   CircuitInput,
+  ElectricalEquipment,
+  ElectricalRoom,
   MaterialItem,
   ProjectData,
   QdcComponentDefinition,
   QdcPlacedComponent,
   QdcProjectData,
   QdcWireConnection,
+  RoomType,
   VoltageOption
 } from "@/types/electrical";
 import {
+  calculateLightingLoad,
   calculateSizing,
+  calculateTugLoad,
   generateMemorialHtml,
   validateQdcProject
 } from "@/services/electricalSizing";
+import { inferPhaseConfiguration } from "@/utils/electricalFormulas";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -33,8 +41,12 @@ import {
   Lightbulb,
   PlugZap,
   Power,
-  LayoutGrid
+  LayoutGrid,
+  ClipboardCopy,
+  ShoppingCart,
+  ShieldCheck
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { DragEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -46,7 +58,8 @@ const projectSeed: ProjectData = {
   electricalSystem: "Bifásico",
   voltage: "220V",
   technicalResponsible: "Guilherme Santana",
-  notes: ""
+  notes: "",
+  demandFactor: 0.8
 };
 
 const qdcSeed: QdcProjectData = {
@@ -73,42 +86,71 @@ const componentLibrary: QdcComponentDefinition[] = [
   { kind: "label", name: "Etiqueta", icon: "ET", modules: 0, nominalCurrent: "-", description: "Identificação." }
 ];
 
-type RoomType = "SECO" | "MOLHADO";
-
-interface Equipment {
-  id: string;
-  name: string;
-  powerWatts: number;
-  voltage: number;
+function generalCircuitVoltage(project: ProjectData) {
+  if (project.voltage === "127/220V") return 127;
+  if (project.voltage === "220/380V") return 220;
+  return Number(project.voltage.replace("V", "")) || 220;
 }
 
-interface Room {
-  id: string;
-  name: string;
-  area: number;
-  perimeter: number;
-  type: RoomType;
-  equipments: Equipment[];
-}
+function buildCircuitsFromRooms(project: ProjectData, rooms: ElectricalRoom[]) {
+  const next: CircuitInput[] = [];
+  let lightWatts = 0;
+  let tugDryWatts = 0;
+  let tugWetWatts = 0;
+  const stamp = Date.now();
 
-function calcLighting(area: number) {
-  if (area <= 0) return 0;
-  if (area <= 6) return 100;
-  const extra = Math.floor((area - 6) / 4);
-  return 100 + (extra * 60);
-}
+  rooms.forEach((room, roomIndex) => {
+    lightWatts += calculateLightingLoad(room.area);
+    const tugs = calculateTugLoad(room.perimeter, room.type);
+    if (room.type === "SECO") tugDryWatts += tugs.power;
+    else tugWetWatts += tugs.power;
 
-function calcTUGs(perimeter: number, type: RoomType) {
-  if (perimeter <= 0) return { qty: 0, power: 0 };
-  if (type === "MOLHADO") {
-    const qty = Math.ceil(perimeter / 3.5);
-    const power = qty <= 3 ? qty * 600 : (3 * 600) + ((qty - 3) * 100);
-    return { qty, power };
-  } else {
-    const qty = Math.ceil(perimeter / 5);
-    const power = qty * 100;
-    return { qty, power };
-  }
+    room.equipments.forEach((equipment, equipmentIndex) => {
+      next.push({
+        id: `CIR-EQ-${stamp}-${roomIndex}-${equipmentIndex}`,
+        name: `${equipment.name} (${room.name})`,
+        type: equipment.circuitType || "TUE",
+        powerWatts: equipment.powerWatts,
+        quantity: 1,
+        voltage: equipment.voltage,
+        powerFactor: equipment.powerFactor || 0.95,
+        lengthMeters: equipment.lengthMeters || 0,
+        installationMethod: "Eletroduto embutido em alvenaria",
+        ambientTemperature: 30,
+        groupedConductors: 3,
+        cableMaterial: "Cobre",
+        insulation: "PVC",
+        phaseConfiguration: equipment.phaseConfiguration || inferPhaseConfiguration(equipment.voltage, project.electricalSystem)
+      });
+    });
+  });
+
+  const voltage = generalCircuitVoltage(project);
+  const phaseConfiguration = inferPhaseConfiguration(voltage, project.electricalSystem);
+  const addGroupedCircuit = (id: string, name: string, type: CircuitInput["type"], powerWatts: number, lengthMeters: number, powerFactor: number) => {
+    if (powerWatts <= 0) return;
+    next.push({
+      id: `${id}-${stamp}`,
+      name,
+      type,
+      powerWatts,
+      quantity: 1,
+      voltage,
+      powerFactor,
+      lengthMeters,
+      installationMethod: "Eletroduto embutido em alvenaria",
+      ambientTemperature: 30,
+      groupedConductors: 3,
+      cableMaterial: "Cobre",
+      insulation: "PVC",
+      phaseConfiguration
+    });
+  };
+
+  addGroupedCircuit("CIR-LGT", "Iluminação geral", "Iluminação", lightWatts, 20, 1);
+  addGroupedCircuit("CIR-TUG-S", "TUGs — áreas secas", "TUG", tugDryWatts, 25, 0.92);
+  addGroupedCircuit("CIR-TUG-M", "TUGs — áreas molhadas", "TUG", tugWetWatts, 20, 0.92);
+  return next;
 }
 
 function getBreakerColor(amps: string | number) {
@@ -175,13 +217,14 @@ function FieldBox({ label, children, full }: { label: string; children: React.Re
 }
 
 export default function SistemasPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"dimensionamento" | "qdc">("dimensionamento");
   const [project, setProject] = useState<ProjectData>(projectSeed);
   const [showProjectForm, setShowProjectForm] = useState(true);
   
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [roomDraft, setRoomDraft] = useState<Partial<Room>>({ name: "", area: 0, perimeter: 0, type: "SECO" });
-  const [eqDrafts, setEqDrafts] = useState<Record<string, Partial<Equipment>>>({});
+  const [rooms, setRooms] = useState<ElectricalRoom[]>([]);
+  const [roomDraft, setRoomDraft] = useState<Partial<ElectricalRoom>>({ name: "", category: "Outro", area: 0, perimeter: 0, type: "SECO" });
+  const [eqDrafts, setEqDrafts] = useState<Record<string, Partial<ElectricalEquipment>>>({});
 
   const [circuits, setCircuits] = useState<CircuitInput[]>([]);
   
@@ -196,8 +239,27 @@ export default function SistemasPage() {
       const saved = localStorage.getItem("volt_sistemas_tecnicos_v4");
       if (!saved) return;
       const parsed = JSON.parse(saved);
-      if (parsed.project) setProject(parsed.project);
-      if (Array.isArray(parsed.rooms)) setRooms(parsed.rooms);
+      if (parsed.project) setProject({ ...projectSeed, ...parsed.project });
+      if (Array.isArray(parsed.rooms)) {
+        setRooms(parsed.rooms.map((room: Partial<ElectricalRoom>, roomIndex: number) => ({
+          id: room.id || `ROOM-SAVED-${roomIndex}`,
+          name: room.name || `Ambiente ${roomIndex + 1}`,
+          category: room.category || "Outro",
+          area: Number(room.area || 0),
+          perimeter: Number(room.perimeter || 0),
+          type: room.type || "SECO",
+          equipments: Array.isArray(room.equipments) ? room.equipments.map((equipment, equipmentIndex) => ({
+            id: equipment.id || `EQ-SAVED-${roomIndex}-${equipmentIndex}`,
+            name: equipment.name || `Equipamento ${equipmentIndex + 1}`,
+            powerWatts: Number(equipment.powerWatts || 0),
+            voltage: Number(equipment.voltage || 220),
+            powerFactor: Number(equipment.powerFactor || 0.95),
+            lengthMeters: Number(equipment.lengthMeters || 15),
+            phaseConfiguration: equipment.phaseConfiguration || inferPhaseConfiguration(Number(equipment.voltage || 220), parsed.project?.electricalSystem || projectSeed.electricalSystem),
+            circuitType: equipment.circuitType || "TUE"
+          })) : []
+        })));
+      }
       if (Array.isArray(parsed.circuits)) setCircuits(parsed.circuits);
       if (parsed.qdcProject) setQdcProject(parsed.qdcProject);
       if (Array.isArray(parsed.placedComponents)) setPlacedComponents(parsed.placedComponents);
@@ -212,7 +274,7 @@ export default function SistemasPage() {
     );
   }, [project, rooms, circuits, qdcProject, placedComponents, connections]);
 
-  const calculation = useMemo(() => calculateSizing(project, circuits), [project, circuits]);
+  const calculation = useMemo(() => calculateSizing(project, circuits, rooms), [project, circuits, rooms]);
   const validations = useMemo(() => validateQdcProject(qdcProject, placedComponents), [qdcProject, placedComponents]);
   const usedModules = placedComponents.reduce((sum, component) => sum + component.modules, 0);
   const selectedComponent = placedComponents.find((component) => component.id === selectedComponentId) ?? null;
@@ -241,16 +303,17 @@ export default function SistemasPage() {
       alert("Preencha nome, área e perímetro do cômodo.");
       return;
     }
-    const newRoom: Room = {
+    const newRoom: ElectricalRoom = {
       id: `ROOM-${Date.now()}`,
       name: roomDraft.name,
+      category: roomDraft.category || "Outro",
       area: roomDraft.area,
       perimeter: roomDraft.perimeter,
       type: roomDraft.type as RoomType,
       equipments: []
     };
     setRooms([...rooms, newRoom]);
-    setRoomDraft({ name: "", area: 0, perimeter: 0, type: "SECO" });
+    setRoomDraft({ name: "", category: "Outro", area: 0, perimeter: 0, type: "SECO" });
   }
 
   function removeRoom(id: string) {
@@ -259,7 +322,7 @@ export default function SistemasPage() {
     }
   }
 
-  function handleEqDraftChange(roomId: string, field: keyof Equipment, value: any) {
+  function handleEqDraftChange(roomId: string, field: keyof ElectricalEquipment, value: string | number) {
     setEqDrafts(prev => ({
       ...prev,
       [roomId]: { ...prev[roomId], [field]: value }
@@ -268,20 +331,30 @@ export default function SistemasPage() {
 
   function addEquipment(roomId: string) {
     const draft = eqDrafts[roomId];
-    if (!draft || !draft.name || !draft.powerWatts || !draft.voltage) {
-      alert("Preencha nome, potência e tensão do equipamento.");
+    if (!draft || !draft.name || !draft.powerWatts) {
+      alert("Preencha nome e potência do equipamento.");
       return;
     }
+    const voltage = Number(draft.voltage || generalCircuitVoltage(project));
     setRooms(rooms.map(r => {
       if (r.id === roomId) {
         return {
           ...r,
-          equipments: [...r.equipments, { id: `EQ-${Date.now()}`, name: draft.name!, powerWatts: draft.powerWatts!, voltage: draft.voltage! }]
+          equipments: [...r.equipments, {
+            id: `EQ-${Date.now()}`,
+            name: draft.name!,
+            powerWatts: draft.powerWatts!,
+            voltage,
+            powerFactor: Number(draft.powerFactor || 0.95),
+            lengthMeters: Number(draft.lengthMeters || 15),
+            phaseConfiguration: draft.phaseConfiguration || inferPhaseConfiguration(voltage, project.electricalSystem),
+            circuitType: draft.circuitType || "TUE"
+          }]
         };
       }
       return r;
     }));
-    setEqDrafts(prev => ({ ...prev, [roomId]: { name: "", powerWatts: 0, voltage: 220 } }));
+    setEqDrafts(prev => ({ ...prev, [roomId]: { name: "", powerWatts: 0, voltage: generalCircuitVoltage(project), powerFactor: 0.95, lengthMeters: 15, circuitType: "TUE" } }));
   }
 
   function removeEquipment(roomId: string, eqId: string) {
@@ -294,98 +367,30 @@ export default function SistemasPage() {
   }
 
   function generateCircuitsFromRooms() {
-    const newCircuits: CircuitInput[] = [];
-    let lightWatts = 0;
-    let tugDryWatts = 0;
-    let tugWetWatts = 0;
+    setCircuits(buildCircuitsFromRooms(project, rooms));
+    alert("Pré-dimensionamento processado. Revise todos os avisos antes de usar na execução.");
+  }
 
-    rooms.forEach((room) => {
-      lightWatts += calcLighting(room.area);
-      const tugs = calcTUGs(room.perimeter, room.type);
-      
-      if (room.type === "SECO") {
-        tugDryWatts += tugs.power;
-      } else {
-        tugWetWatts += tugs.power;
-      }
-
-      room.equipments.forEach((eq) => {
-        newCircuits.push({
-          id: `CIR-TUE-${Date.now()}-${Math.random()}`,
-          name: `${eq.name} (${room.name})`,
-          type: "TUE",
-          powerWatts: eq.powerWatts,
-          quantity: 1,
-          voltage: eq.voltage,
-          powerFactor: 0.95,
-          lengthMeters: 15,
-          installationMethod: "Eletroduto embutido em alvenaria",
-          ambientTemperature: 30,
-          groupedConductors: 2,
-          cableMaterial: "Cobre",
-          insulation: "PVC"
-        });
-      });
-    });
-
-    const v = project.voltage === "127V" ? 127 : 220;
-
-    if (lightWatts > 0) {
-      newCircuits.push({
-        id: `CIR-LGT-${Date.now()}`,
-        name: "Iluminação Geral",
-        type: "Iluminação",
-        powerWatts: lightWatts,
-        quantity: 1,
-        voltage: v,
-        powerFactor: 1,
-        lengthMeters: 20,
-        installationMethod: "Eletroduto embutido em alvenaria",
-        ambientTemperature: 30,
-        groupedConductors: 3,
-        cableMaterial: "Cobre",
-        insulation: "PVC"
-      });
-    }
-
-    if (tugDryWatts > 0) {
-      newCircuits.push({
-        id: `CIR-TUG-S-${Date.now()}`,
-        name: "TUGs - Áreas Secas",
-        type: "TUG",
-        powerWatts: tugDryWatts,
-        quantity: 1,
-        voltage: v,
-        powerFactor: 0.92,
-        lengthMeters: 25,
-        installationMethod: "Eletroduto embutido em alvenaria",
-        ambientTemperature: 30,
-        groupedConductors: 3,
-        cableMaterial: "Cobre",
-        insulation: "PVC"
-      });
-    }
-
-    if (tugWetWatts > 0) {
-      newCircuits.push({
-        id: `CIR-TUG-M-${Date.now()}`,
-        name: "TUGs - Áreas Molhadas",
-        type: "TUG",
-        powerWatts: tugWetWatts,
-        quantity: 1,
-        voltage: v,
-        powerFactor: 0.92,
-        lengthMeters: 20,
-        installationMethod: "Eletroduto embutido em alvenaria",
-        ambientTemperature: 30,
-        groupedConductors: 3,
-        cableMaterial: "Cobre",
-        insulation: "PVC"
-      });
-    }
-
-    setCircuits(newCircuits);
-    alert("Cargas agrupadas e Circuitos dimensionados com sucesso!");
+  function applyAiDimensioning(result: DimensioningAiResult) {
+    const nextProject: ProjectData = {
+      ...project,
+      ...result.project,
+      client: project.client,
+      address: project.address,
+      technicalResponsible: project.technicalResponsible
+    };
+    const nextRooms = result.rooms.map((room, roomIndex) => ({
+      ...room,
+      id: `ROOM-AI-${Date.now()}-${roomIndex}`,
+      equipments: room.equipments.map((equipment, equipmentIndex) => ({
+        ...equipment,
+        id: `EQ-AI-${Date.now()}-${roomIndex}-${equipmentIndex}`
+      }))
+    }));
+    setProject(nextProject);
+    setRooms(nextRooms);
+    setCircuits(buildCircuitsFromRooms(nextProject, nextRooms));
+    setShowProjectForm(true);
   }
 
   function openMemorialPdf() {
@@ -400,6 +405,72 @@ export default function SistemasPage() {
     popup.document.close();
     popup.focus();
     setTimeout(() => popup.print(), 500);
+  }
+
+  async function copyMaterialList() {
+    const text = calculation.materials.map((item) => (
+      `${item.quantity} ${item.unit} — ${item.material} — ${item.specification}${item.observation ? ` (${item.observation})` : ""}`
+    )).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Lista de materiais copiada.");
+    } catch {
+      alert("O navegador bloqueou a cópia. Gere o memorial para salvar a lista.");
+    }
+  }
+
+  function createQuoteFromSizing() {
+    if (!calculation.materials.length) return;
+    const today = new Date();
+    const validUntil = new Date(today);
+    validUntil.setDate(validUntil.getDate() + 10);
+    const iso = (date: Date) => date.toISOString().slice(0, 10);
+    const noteLines = [
+      `Importado do pré-dimensionamento ${calculation.ruleSetVersion}.`,
+      ...calculation.summary.assumptions,
+      ...calculation.summary.limitations
+    ];
+    const quote = {
+      id: `ORC-${String(Date.now()).slice(-5)}`,
+      client: project.client,
+      contact: "",
+      phone: "",
+      email: "",
+      address: project.address,
+      serviceType: "Instalação elétrica",
+      title: `Execução — ${project.projectName || "Projeto elétrico"}`,
+      createdAt: iso(today),
+      validUntil: iso(validUntil),
+      responsible: project.technicalResponsible || "Guilherme Santana",
+      status: "Rascunho",
+      chance: 50,
+      priority: "Média",
+      payment: "A definir",
+      warranty: "A definir após revisão do escopo",
+      deadline: "A definir após vistoria",
+      os: "Sem OS",
+      items: [{
+        kind: "Serviço",
+        code: "DIM-IMPORT",
+        description: "Execução elétrica conforme levantamento — precificar após revisão técnica",
+        unit: "serv.",
+        quantity: 1,
+        unitPrice: 0,
+        unitCost: 0,
+        discount: 0
+      }],
+      materials: calculation.materials.map((item) => ({
+        category: item.material,
+        description: item.material,
+        quantity: item.quantity,
+        unit: item.unit,
+        specification: `${item.specification}. ${item.observation}`
+      })),
+      history: ["Orçamento criado a partir da Central Técnica IA"],
+      notes: noteLines.join("\n")
+    };
+    localStorage.setItem("volt_quote_import_v1", JSON.stringify(quote));
+    router.push("/cotacoes?import=dimensionamento");
   }
 
   function createNewDimensioning() {
@@ -502,22 +573,17 @@ export default function SistemasPage() {
       });
     };
 
-    const totalWatts = circuits.reduce((sum, c) => sum + (c.powerWatts * c.quantity), 0);
-    const v = project.voltage === "127V" ? 127 : 220;
-    const estimatedCurrent = (totalWatts * 0.8) / v;
-    
-    const commercialBreakers = [25, 32, 40, 50, 63, 80, 100, 125];
-    const mainBreakerAmps = commercialBreakers.find(b => b >= estimatedCurrent) || 63;
-    
+    const mainBreakerAmps = calculation.summary.preliminaryMainBreaker;
     const dgKind = project.electricalSystem === "Monofásico" ? "breaker-1p" : project.electricalSystem === "Trifásico" ? "breaker-3p" : "breaker-2p";
 
-    push(dgKind, "DG - Disjuntor Geral", `${mainBreakerAmps}A`);
-    push("dps", "DPS", "275V");
-    push("dr", "DR - Proteção Geral", `${mainBreakerAmps}A / 30mA`);
+    push(dgKind, "DG — preliminar, revisar alimentador", `${mainBreakerAmps}A`);
+    const phaseCount = project.electricalSystem === "Trifásico" ? 3 : project.electricalSystem === "Bifásico" ? 2 : 1;
+    Array.from({ length: phaseCount }).forEach((_, index) => push("dps", `DPS F${index + 1} — confirmar coordenação`, calculation.results[0]?.recommendedDps || "Uc a confirmar"));
+    push("dr", "DR — agrupamento preliminar", `${mainBreakerAmps}A / 30mA`);
 
     calculation.results.forEach((result, index) => {
-      const kind = result.recommendedBreaker <= 20 ? "breaker-1p" : "breaker-2p";
-      push(kind, `DJ ${index + 1} - ${result.name}`, `${result.recommendedBreaker}A`);
+      const kind = result.breakerPoles === 1 ? "breaker-1p" : result.breakerPoles === 3 ? "breaker-3p" : "breaker-2p";
+      push(kind, `DJ ${index + 1} — ${result.name} • ${result.phaseAssignment}`, `${result.recommendedBreaker}A curva ${result.breakerCurve}`);
     });
 
     push("neutral-bar", "Barramento de Neutro");
@@ -531,7 +597,7 @@ export default function SistemasPage() {
       location: project.address,
       electricalSystem: project.electricalSystem,
       voltage: project.voltage,
-      modules: Math.max(24, nextComponents.reduce((sum, component) => sum + component.modules, 0) + 6)
+      modules: Math.max(calculation.summary.boardModules, nextComponents.reduce((sum, component) => sum + component.modules, 0) + 4)
     }));
     setActiveTab("qdc");
   }
@@ -552,10 +618,10 @@ export default function SistemasPage() {
           <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-volt-yellow/20 blur-[130px]" />
           <div className="relative z-10 flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
-              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Sistema</p>
-              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Sistemas Técnicos</h1>
+              <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Gemini + motor técnico Volt</p>
+              <h1 className="mt-2 text-4xl font-black leading-tight md:text-5xl">Central Técnica IA</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-                Ferramentas inteligentes para projetos, dimensionamentos e quadros elétricos da Volt Soluções.
+                Levantamento por conversa, pré-dimensionamento verificável, lista de materiais, memorial e montagem do QDC no mesmo fluxo.
               </p>
             </div>
 
@@ -575,7 +641,7 @@ export default function SistemasPage() {
             onClick={() => setActiveTab("dimensionamento")}
             className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-black transition ${activeTab === "dimensionamento" ? "bg-volt-yellow text-black shadow-glow" : "text-zinc-400 hover:bg-white/10 hover:text-white"}`}
           >
-            Dimensionamento Automático
+            Dimensionamento IA
           </button>
           <button
             onClick={() => setActiveTab("qdc")}
@@ -587,14 +653,37 @@ export default function SistemasPage() {
 
         {activeTab === "dimensionamento" && (
           <div className="space-y-5 animate-fade-in">
+            <DimensioningAiPanel
+              currentData={{
+                project: {
+                  projectName: project.projectName,
+                  installationType: project.installationType,
+                  electricalSystem: project.electricalSystem,
+                  voltage: project.voltage,
+                  demandFactor: project.demandFactor,
+                  notes: project.notes
+                },
+                rooms
+              }}
+              onApply={applyAiDimensioning}
+            />
+
+            <section className="flex flex-col gap-4 rounded-[2rem] border border-orange-400/25 bg-orange-400/[.07] p-5 md:flex-row md:items-start">
+              <ShieldCheck className="shrink-0 text-orange-200" size={24} />
+              <div>
+                <p className="font-black text-orange-100">Pré-dimensionamento orientativo — regra {calculation.ruleSetVersion}</p>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">A IA não decide cabos ou proteções. O cálculo usa os dados informados e exibe pendências. Antes da execução, confirme em campo método de instalação, temperatura, agrupamento, aterramento, corrente de curto-circuito, seletividade e os requisitos vigentes com profissional habilitado.</p>
+              </div>
+            </section>
+
             <section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
               <div className="card-premium rounded-[2rem] p-5 md:p-6">
                 <div className="mb-5 flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Passo 01</p>
+                    <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Dados revisáveis</p>
                     <h2 className="mt-1 text-2xl font-black">Configuração Inicial</h2>
                     <p className="mt-2 text-sm leading-6 text-zinc-500">
-                      Defina os parâmetros do projeto elétrico.
+                      Confirme os parâmetros coletados pela IA ou preencha manualmente.
                     </p>
                   </div>
                   <Gauge className="text-volt-yellow" size={28} />
@@ -611,7 +700,9 @@ export default function SistemasPage() {
                     ["Circuitos", circuits.length],
                     ["Materiais", calculation.materials.length],
                     ["Potência Ativa", `${totalKW} kW`],
-                    ["Potência Aparente", `${totalKVA} kVA`]
+                    ["Potência Aparente", `${totalKVA} kVA`],
+                    ["Corrente de demanda", `${calculation.summary.demandCurrent} A`],
+                    ["DG preliminar", `${calculation.summary.preliminaryMainBreaker} A`]
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-white/10 bg-white/[.035] p-4 transition hover:border-volt-yellow/30">
                       <p className="text-xs text-zinc-500">{label}</p>
@@ -640,9 +731,10 @@ export default function SistemasPage() {
                     </FieldBox>
                     <FieldBox label="Tensão">
                       <select value={project.voltage} onChange={(event) => updateProject("voltage", event.target.value as VoltageOption)} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-4 py-3 text-sm font-bold outline-none">
-                        {["127V", "220V", "380V"].map((item) => <option key={item}>{item}</option>)}
+                        {["127V", "220V", "380V", "127/220V", "220/380V"].map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </FieldBox>
+                    <FieldBox label="Fator de demanda (0,1 a 1)"><NumberInput value={project.demandFactor} onChange={(value) => updateProject("demandFactor", Math.min(Math.max(value, 0.1), 1))} /></FieldBox>
                     <FieldBox label="Responsável técnico"><TextInput value={project.technicalResponsible} onChange={(value) => updateProject("technicalResponsible", value)} /></FieldBox>
                     <FieldBox label="Observações" full>
                       <textarea value={project.notes} onChange={(event) => updateProject("notes", event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40" />
@@ -657,14 +749,20 @@ export default function SistemasPage() {
                 <div>
                   <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Passo 02</p>
                   <h2 className="mt-1 text-2xl font-black">Seleção de Ambientes e Cargas</h2>
-                  <p className="mt-2 text-sm text-zinc-400">Adicione os cômodos. O sistema define as TUGs e Iluminação de forma automática pela NBR 5410.</p>
+                  <p className="mt-2 text-sm text-zinc-400">Adicione os ambientes manualmente ou use a conversa com IA. As cargas mínimas são premissas configuráveis e devem ser conferidas na norma vigente.</p>
                 </div>
               </div>
 
               <div className="flex flex-col md:flex-row gap-3 items-end mb-8 bg-black/40 p-5 rounded-[1.5rem] border border-white/5">
-                <div className="w-full md:w-1/3">
+                <div className="w-full md:w-1/4">
                   <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-500 ml-2">Ambiente</label>
                   <TextInput value={roomDraft.name || ""} placeholder="Ex: Quarto Master" onChange={(value) => setRoomDraft({ ...roomDraft, name: value })} />
+                </div>
+                <div className="w-full md:w-1/6">
+                  <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-500 ml-2">Categoria</label>
+                  <select value={roomDraft.category} onChange={(event) => setRoomDraft({ ...roomDraft, category: event.target.value as ElectricalRoom["category"] })} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080c11] px-3 py-3 text-sm font-bold outline-none">
+                    {["Sala", "Quarto", "Cozinha", "Banheiro", "Lavanderia", "Corredor", "Varanda", "Garagem", "Escritório", "Loja", "Outro"].map((item) => <option key={item}>{item}</option>)}
+                  </select>
                 </div>
                 <div className="w-full md:w-1/6">
                   <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-500 ml-2">Área (m²)</label>
@@ -674,7 +772,7 @@ export default function SistemasPage() {
                   <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-500 ml-2">Perímetro (m)</label>
                   <NumberInput value={roomDraft.perimeter || 0} onChange={(value) => setRoomDraft({ ...roomDraft, perimeter: value })} />
                 </div>
-                <div className="w-full md:w-1/4">
+                <div className="w-full md:w-1/5">
                   <label className="text-xs font-black uppercase tracking-[.16em] text-zinc-500 ml-2">Tipo</label>
                   <select 
                     value={roomDraft.type} 
@@ -692,8 +790,8 @@ export default function SistemasPage() {
 
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                 {rooms.map(room => {
-                  const light = calcLighting(room.area);
-                  const tugs = calcTUGs(room.perimeter, room.type);
+                  const light = calculateLightingLoad(room.area);
+                  const tugs = calculateTugLoad(room.perimeter, room.type);
                   
                   return (
                     <div key={room.id} className="relative rounded-[2rem] border border-white/10 bg-white/[.02] p-6 flex flex-col shadow-lg transition hover:border-white/20">
@@ -705,7 +803,7 @@ export default function SistemasPage() {
                           </div>
                           <div>
                             <h3 className="text-lg font-black text-white">{room.name}</h3>
-                            <p className="text-xs font-bold text-zinc-500">{room.area}m² • {room.perimeter}m • {room.type === 'SECO' ? 'Seco' : 'Molhado'}</p>
+                            <p className="text-xs font-bold text-zinc-500">{room.area}m² • {room.perimeter}m • {room.category} • {room.type === 'SECO' ? 'Seco' : 'Molhado'}</p>
                           </div>
                         </div>
                         <button onClick={() => removeRoom(room.id)} className="p-2 text-red-500/50 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition">
@@ -739,7 +837,7 @@ export default function SistemasPage() {
                                 <Power size={14} className="text-volt-yellow" />
                                 <div>
                                   <p className="text-sm font-bold text-white">{eq.name}</p>
-                                  <p className="text-[10px] font-bold text-zinc-500 uppercase">{eq.powerWatts}W • {eq.voltage}V</p>
+                                  <p className="text-[10px] font-bold text-zinc-500 uppercase">{eq.powerWatts}W • {eq.voltage}V • {eq.lengthMeters}m • {eq.phaseConfiguration}</p>
                                 </div>
                               </div>
                               <button onClick={() => removeEquipment(room.id, eq.id)} className="text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">
@@ -749,7 +847,7 @@ export default function SistemasPage() {
                           ))}
                         </div>
 
-                        <div className="flex gap-2 items-center">
+                        <div className="grid grid-cols-[1fr_80px_72px_72px_38px] gap-2 items-center">
                           <input 
                             type="text" 
                             placeholder="Nome..." 
@@ -763,6 +861,21 @@ export default function SistemasPage() {
                             value={eqDrafts[room.id]?.powerWatts || ""}
                             onChange={e => handleEqDraftChange(room.id, "powerWatts", Number(e.target.value))}
                             className="w-20 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold outline-none focus:border-volt-yellow/40 transition-colors"
+                          />
+                          <input
+                            type="number"
+                            placeholder="V"
+                            value={eqDrafts[room.id]?.voltage || ""}
+                            onChange={event => handleEqDraftChange(room.id, "voltage", Number(event.target.value))}
+                            className="w-[72px] rounded-xl border border-white/10 bg-black/50 px-2 py-2 text-xs font-bold outline-none focus:border-volt-yellow/40"
+                          />
+                          <input
+                            type="number"
+                            placeholder="m"
+                            title="Distância aproximada até o quadro"
+                            value={eqDrafts[room.id]?.lengthMeters || ""}
+                            onChange={event => handleEqDraftChange(room.id, "lengthMeters", Number(event.target.value))}
+                            className="w-[72px] rounded-xl border border-white/10 bg-black/50 px-2 py-2 text-xs font-bold outline-none focus:border-volt-yellow/40"
                           />
                           <button onClick={() => addEquipment(room.id)} className="bg-white/10 text-white rounded-xl p-2 hover:bg-volt-yellow hover:text-black transition">
                             <Plus size={16} />
@@ -779,7 +892,7 @@ export default function SistemasPage() {
                     <LayoutGrid className="text-zinc-700 mb-4" size={40} />
                     <h3 className="text-lg font-black text-white mb-2">Nenhum ambiente adicionado</h3>
                     <p className="text-sm text-zinc-500 max-w-sm">
-                      Utilize a barra superior para adicionar os cômodos do projeto. O sistema cuidará das regras da NBR 5410 para você.
+                      Use a conversa com IA ou a barra superior. Depois, confira medidas, cargas e premissas antes de processar.
                     </p>
                   </div>
                 )}
@@ -788,7 +901,7 @@ export default function SistemasPage() {
               {rooms.length > 0 && (
                 <div className="mt-8 flex justify-end">
                   <button onClick={generateCircuitsFromRooms} className="btn-primary inline-flex items-center gap-2 py-4 px-8 text-base shadow-glow animate-pulse">
-                    <Zap size={20} /> Processar Dimensionamento NBR 5410
+                    <Zap size={20} /> Processar pré-dimensionamento
                   </button>
                 </div>
               )}
@@ -799,40 +912,54 @@ export default function SistemasPage() {
                 <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-center">
                   <div>
                     <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Passo 03</p>
-                    <h2 className="mt-1 text-2xl font-black">Circuitos e Disjuntores Dimensionados</h2>
+                    <h2 className="mt-1 text-2xl font-black">Circuitos e proteções preliminares</h2>
                   </div>
                   <button onClick={generateQdcFromSizing} className="btn-ghost inline-flex items-center gap-2 bg-white/5 hover:bg-white/10">
                     <ArrowUpRight size={17} /> Atualizar QDC Automaticamente
                   </button>
                 </div>
 
+                <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {(["F1", "F2", "F3"] as const).slice(0, project.electricalSystem === "Monofásico" ? 1 : project.electricalSystem === "Bifásico" ? 2 : 3).map((phase) => (
+                    <div key={phase} className="rounded-2xl border border-white/10 bg-black/25 p-4"><p className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">Carga {phase}</p><p className="mt-1 text-xl font-black text-volt-yellow">{calculation.summary.phaseCurrents[phase]} A</p></div>
+                  ))}
+                  <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><p className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">Desequilíbrio</p><p className="mt-1 text-xl font-black text-white">{calculation.summary.phaseImbalancePercent}%</p></div>
+                </div>
+
                 <div className="volt-scroll overflow-x-auto">
-                  <table className="w-full min-w-[1050px] border-separate border-spacing-y-3">
+                  <table className="w-full min-w-[1250px] border-separate border-spacing-y-3">
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-[.16em] text-zinc-500">
                         <th className="px-4 py-2">Circuito</th>
+                        <th className="px-4 py-2">Fases</th>
                         <th className="px-4 py-2">Corrente Projeto</th>
-                        <th className="px-4 py-2">Bitola (Cabo)</th>
+                        <th className="px-4 py-2">Cabo / Iz</th>
                         <th className="px-4 py-2">Disjuntor</th>
+                        <th className="px-4 py-2">Queda</th>
                         <th className="px-4 py-2">Proteções</th>
-                        <th className="px-4 py-2">Status NBR</th>
+                        <th className="px-4 py-2">Revisão técnica</th>
                       </tr>
                     </thead>
                     <tbody>
                       {calculation.results.map((result) => (
                         <tr key={result.circuitId} className="bg-black/30 hover:bg-white/5 transition-colors text-sm">
-                          <td className="rounded-l-2xl px-4 py-4 font-black text-white">{result.name}</td>
+                          <td className="rounded-l-2xl px-4 py-4 font-black text-white">
+                            {result.name}
+                            <p className="mt-1 max-w-xs text-[10px] font-medium leading-4 text-zinc-600">{result.warnings[0]}</p>
+                          </td>
+                          <td className="px-4 py-4 text-zinc-300"><strong>{result.phaseAssignment}</strong><br/><span className="text-[10px] text-zinc-600">{result.phaseConfiguration}</span></td>
                           <td className="px-4 py-4 text-zinc-300">{result.calculatedCurrent} A</td>
-                          <td className="px-4 py-4 font-black text-volt-yellow">{result.recommendedCableSection} mm²</td>
+                          <td className="px-4 py-4 font-black text-volt-yellow">{result.recommendedCableSection} mm²<br/><span className="text-[10px] font-bold text-zinc-500">Iz {result.correctedCableCapacity} A</span></td>
                           <td className="px-4 py-4 font-black text-white">
                              <span className={`px-2 py-1 rounded text-[10px] uppercase font-black ${getBreakerColor(result.recommendedBreaker)}`}>
-                               {result.recommendedBreaker}A
+                               {result.breakerPoles}P {result.recommendedBreaker}A curva {result.breakerCurve}
                              </span>
                           </td>
+                          <td className="px-4 py-4 font-black text-zinc-300">{result.voltageDropPercent}%</td>
                           <td className="px-4 py-4 text-xs text-zinc-400">
                             DR: {result.recommendedDr} <br/> DPS: {result.recommendedDps}
                           </td>
-                          <td className="rounded-r-2xl px-4 py-4"><Badge className={statusClass(result.status)}>{result.status}</Badge></td>
+                          <td className="rounded-r-2xl px-4 py-4" title={result.warnings.join("\n")}><Badge className={statusClass(result.status)}>{result.status}</Badge><p className="mt-2 text-[10px] text-zinc-600">{result.warnings.length} verificação(ões)</p></td>
                         </tr>
                       ))}
                     </tbody>
@@ -846,7 +973,7 @@ export default function SistemasPage() {
                 <div className="card-premium rounded-[2rem] p-5 md:p-6">
                   <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Exportação</p>
                   <h2 className="mt-1 text-2xl font-black">Lista de Materiais</h2>
-                  <p className="mt-2 text-sm text-zinc-500 mb-5">Pronta para integrar com seus orçamentos e fornecedores.</p>
+                  <p className="mt-2 text-sm text-zinc-500 mb-5">Quantidades preliminares agrupadas, com reserva de trajeto e observações para cotação.</p>
                   
                   <div className="volt-scroll overflow-x-auto">
                     <table className="w-full min-w-[700px] border-separate border-spacing-y-2">
@@ -855,6 +982,7 @@ export default function SistemasPage() {
                           <th className="px-4 py-2">Material / Especificação</th>
                           <th className="px-4 py-2">Qtd</th>
                           <th className="px-4 py-2">Unidade</th>
+                          <th className="px-4 py-2">Conferência</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -865,26 +993,31 @@ export default function SistemasPage() {
                               <span className="text-xs text-zinc-500">{item.specification}</span>
                             </td>
                             <td className="px-4 py-3 text-volt-yellow font-black text-lg">{item.quantity}</td>
-                            <td className="rounded-r-2xl px-4 py-3 text-zinc-400 font-bold">{item.unit}</td>
+                            <td className="px-4 py-3 text-zinc-400 font-bold">{item.unit}</td>
+                            <td className="rounded-r-2xl px-4 py-3 text-xs leading-5 text-zinc-500">{item.observation}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                    <button onClick={() => void copyMaterialList()} className="btn-ghost inline-flex items-center justify-center gap-2"><ClipboardCopy size={17} /> Copiar lista</button>
+                    <button onClick={createQuoteFromSizing} className="btn-primary inline-flex items-center justify-center gap-2"><ShoppingCart size={17} /> Criar orçamento</button>
                   </div>
                 </div>
 
                 <div className="card-premium rounded-[2rem] p-5 md:p-6 flex flex-col justify-between">
                   <div>
                     <p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Documentação</p>
-                    <h2 className="mt-1 text-2xl font-black">Memorial de Cálculo</h2>
+                    <h2 className="mt-1 text-2xl font-black">Memorial de pré-dimensionamento</h2>
                     <p className="mt-4 text-sm leading-7 text-zinc-400">
-                      Gere o relatório técnico completo em PDF. Este documento inclui a responsabilidade técnica, balanço de cargas, lista de disjuntores e cabeamento exigido pela NBR 5410.
+                      Gere um PDF organizado com cargas, relação Ib/In/Iz, queda de tensão, balanceamento, materiais, premissas e todas as limitações que precisam de revisão profissional.
                     </p>
                   </div>
 
                   <div className="mt-8 space-y-4">
                     <button onClick={openMemorialPdf} className="btn-primary w-full inline-flex justify-center items-center gap-2 py-4">
-                      <FileText size={18} /> Gerar PDF do Projeto
+                      <FileText size={18} /> Gerar memorial em PDF
                     </button>
                   </div>
                 </div>
