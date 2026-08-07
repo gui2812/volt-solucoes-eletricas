@@ -3,6 +3,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { AiEstimatorPanel } from "@/components/cotacoes/ai-estimator-panel";
 import { SignatureStudio } from "@/components/signatures/signature-studio";
+import { deleteBusinessDocument, loadBusinessDocuments, loadBusinessDocumentsState, mergeCloudWithLocal, saveBusinessDocuments } from "@/services/businessDocuments";
 import {
   CONTRACT_COMPANY_PROFILE_KEY,
   CONTRACT_IMPORT_KEY,
@@ -489,48 +490,89 @@ export default function CotacoesPage() {
   const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
-    let nextQuotes = quotesSeed;
-    try {
-      const saved = localStorage.getItem("volt_cotacoes_premium_v1");
-      if (saved) {
-        const parsed = JSON.parse(saved) as Quote[];
-        if (Array.isArray(parsed)) {
-          nextQuotes = parsed;
+    let active = true;
+
+    async function hydrateQuotes() {
+      let cachedQuotes: Quote[] = [];
+      let hadLocalCache = false;
+      let pendingImported: Quote | null = null;
+
+      try {
+        const saved = localStorage.getItem("volt_cotacoes_premium_v1");
+        if (saved) {
+          const parsed = JSON.parse(saved) as Quote[];
+          if (Array.isArray(parsed)) {
+            cachedQuotes = parsed;
+            hadLocalCache = true;
+          }
         }
+
+        const pendingImport = localStorage.getItem("volt_quote_import_v1");
+        if (pendingImport) {
+          const imported = JSON.parse(pendingImport) as Quote;
+          if (imported?.id && Array.isArray(imported.items)) {
+            pendingImported = imported;
+            cachedQuotes = [imported, ...cachedQuotes.filter((item) => item.id !== imported.id)];
+            hadLocalCache = true;
+          }
+          localStorage.removeItem("volt_quote_import_v1");
+        }
+      } catch {
+        cachedQuotes = [];
       }
 
-      const pendingImport = localStorage.getItem("volt_quote_import_v1");
-      if (pendingImport) {
-        const imported = JSON.parse(pendingImport) as Quote;
-        if (imported?.id && Array.isArray(imported.items)) {
-          nextQuotes = [imported, ...nextQuotes.filter((item) => item.id !== imported.id)];
-          setSelected(imported);
-          setEditingKey(null);
-          setDraft({
-            ...imported,
-            items: imported.items.map((item) => ({ ...item })),
-            materials: (imported.materials ?? []).map((material) => ({ ...material }))
-          });
-          setActiveTab("Novo Orçamento");
-          setEditOpen(true);
+      let nextQuotes: Quote[] = hadLocalCache ? cachedQuotes : quotesSeed;
+
+      try {
+        const cloudState = await loadBusinessDocumentsState<Quote>("quote");
+        const cloudQuotes = cloudState.documents;
+        const deletedQuoteIds = new Set(cloudState.deletedIds);
+        const localForMerge = (hadLocalCache ? cachedQuotes : cloudQuotes.length ? [] : quotesSeed)
+          .filter((item) => !deletedQuoteIds.has(item.id));
+        const merged = mergeCloudWithLocal(cloudQuotes, localForMerge);
+        nextQuotes = merged.merged;
+
+        if (merged.localOnly.length) {
+          await saveBusinessDocuments("quote", merged.localOnly);
         }
-        localStorage.removeItem("volt_quote_import_v1");
+      } catch (error) {
+        console.warn("Supabase indisponível para orçamentos; usando cache local.", error);
+      }
+
+      if (!active) return;
+      setQuotes(nextQuotes);
+
+      if (pendingImported) {
+        const imported = nextQuotes.find((item) => item.id === pendingImported?.id) || pendingImported;
+        setSelected(imported);
+        setEditingKey(null);
+        setDraft({
+          ...imported,
+          items: imported.items.map((item) => ({ ...item })),
+          materials: (imported.materials ?? []).map((material) => ({ ...material }))
+        });
+        setActiveTab("Novo Orçamento");
+        setEditOpen(true);
       } else {
         setSelected(nextQuotes[0] ?? null);
       }
 
-      setQuotes(nextQuotes);
-    } catch {
-      setQuotes(quotesSeed);
-      setSelected(quotesSeed[0] ?? null);
-    } finally {
       setStorageReady(true);
     }
+
+    void hydrateQuotes();
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
     localStorage.setItem("volt_cotacoes_premium_v1", JSON.stringify(quotes));
+    const timer = window.setTimeout(() => {
+      void saveBusinessDocuments("quote", quotes).catch((error) => {
+        console.warn("Não foi possível sincronizar orçamentos com o Supabase.", error);
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
   }, [storageReady, quotes]);
 
   function getRecordKey(item: Quote) {
@@ -592,7 +634,11 @@ export default function CotacoesPage() {
   function removeSelected() {
     if (!selected) return;
     if (!window.confirm("Excluir este orçamento?")) return;
-    setQuotes((current) => current.filter((item) => getRecordKey(item) !== getRecordKey(selected)));
+    const deletedId = selected.id;
+    setQuotes((current) => current.filter((item) => getRecordKey(item) !== deletedId));
+    void deleteBusinessDocument("quote", deletedId).catch((error) => {
+      console.warn("Não foi possível excluir o orçamento do Supabase.", error);
+    });
     setSelected(null);
     setModalOpen(false);
     setEditOpen(false);
@@ -1223,7 +1269,7 @@ export default function CotacoesPage() {
     }
   }
 
-  function generateContractFromQuote(quote: Quote) {
+  async function generateContractFromQuote(quote: Quote) {
     if (getSignatureStatus(quote) !== "Assinada") {
       alert("O orçamento precisa estar assinado pelo cliente antes de gerar o contrato.");
       return;
@@ -1232,10 +1278,22 @@ export default function CotacoesPage() {
     let companyProfile = { ...defaultCompanyProfile };
 
     try {
-      const savedProfile = localStorage.getItem(CONTRACT_COMPANY_PROFILE_KEY);
-      if (savedProfile) companyProfile = { ...companyProfile, ...JSON.parse(savedProfile) };
+      const cloudProfiles = await loadBusinessDocuments<{ id: string } & typeof defaultCompanyProfile>("company_profile");
+      const cloudProfile = cloudProfiles.find((item) => item.id === "volt-company-profile");
+      if (cloudProfile) {
+        const { id: _id, ...profileData } = cloudProfile;
+        companyProfile = { ...companyProfile, ...profileData };
+      } else {
+        const savedProfile = localStorage.getItem(CONTRACT_COMPANY_PROFILE_KEY);
+        if (savedProfile) companyProfile = { ...companyProfile, ...JSON.parse(savedProfile) };
+      }
     } catch {
-      // Os dados jurídicos poderão ser completados no editor do contrato.
+      try {
+        const savedProfile = localStorage.getItem(CONTRACT_COMPANY_PROFILE_KEY);
+        if (savedProfile) companyProfile = { ...companyProfile, ...JSON.parse(savedProfile) };
+      } catch {
+        // Os dados jurídicos poderão ser completados no editor do contrato.
+      }
     }
 
     const contract = createContractFromQuote({
@@ -1258,6 +1316,11 @@ export default function CotacoesPage() {
     }, companyProfile);
 
     localStorage.setItem(CONTRACT_IMPORT_KEY, JSON.stringify(contract));
+    try {
+      await saveBusinessDocuments("contract", [contract]);
+    } catch (error) {
+      console.warn("Contrato criado, mas a sincronização imediata com o Supabase falhou; o cache local será migrado ao abrir Contratos.", error);
+    }
     window.location.href = "/contratos?origem=orcamento-assinado";
   }
 
