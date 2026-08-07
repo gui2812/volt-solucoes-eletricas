@@ -2,6 +2,7 @@
 
 import { AppShell } from "@/components/layout/app-shell";
 import { AiEstimatorPanel } from "@/components/cotacoes/ai-estimator-panel";
+import { SignatureStudio } from "@/components/signatures/signature-studio";
 import {
   CONTRACT_COMPANY_PROFILE_KEY,
   CONTRACT_IMPORT_KEY,
@@ -11,6 +12,7 @@ import {
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
 import { checkRemoteSignatureByToken, checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
 import type { EstimatorResult } from "@/types/orcamentista";
+import type { SignatureData, SignatureMode, SignatureStyle } from "@/types/signatures";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -32,7 +34,7 @@ import {
   Wallet,
   Wrench
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type QuoteStatus =
   | "Rascunho"
@@ -45,18 +47,6 @@ type QuoteStatus =
   | "Vencida"
   | "Convertida em OS";
 
-
-type SignatureMode = "Pendente" | "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
-
-type SignatureStyle = "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
-
-type SignatureData = {
-  signerName: string;
-  mode: SignatureMode;
-  signedAt: string;
-  signatureDataUrl?: string;
-  signatureStyle?: SignatureStyle;
-};
 
 type RemoteSignatureStatus = "Pendente" | "Enviada" | "Assinada" | "Expirada" | "Cancelada";
 
@@ -773,7 +763,11 @@ export default function CotacoesPage() {
         mode: result.clientSignature.mode || "Assinatura livre",
         signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || todayIso(),
         signatureDataUrl: result.clientSignature.signatureDataUrl || "",
-        signatureStyle: result.clientSignature.signatureStyle || "Clássica"
+        signatureStyle: result.clientSignature.signatureStyle || "Clássica",
+        acceptedTerms: result.clientSignature.acceptedTerms ?? true,
+        brushStyle: result.clientSignature.brushStyle,
+        inkColor: result.clientSignature.inkColor,
+        initials: result.clientSignature.initials
       } as SignatureData;
 
       pdfQuote = {
@@ -1166,7 +1160,11 @@ export default function CotacoesPage() {
             mode: result.clientSignature.mode || "Assinatura livre",
             signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || todayIso(),
             signatureDataUrl: result.clientSignature.signatureDataUrl || "",
-            signatureStyle: result.clientSignature.signatureStyle || "Clássica"
+            signatureStyle: result.clientSignature.signatureStyle || "Clássica",
+            acceptedTerms: result.clientSignature.acceptedTerms ?? true,
+            brushStyle: result.clientSignature.brushStyle,
+            inkColor: result.clientSignature.inkColor,
+            initials: result.clientSignature.initials
           } as SignatureData
         : quote.clientSignature;
 
@@ -2119,14 +2117,6 @@ function QuoteEditorModal({
     updateQuote(role, value);
   }
 
-  function signResponsiblePredefined() {
-    updateSignature("responsibleSignature", makeSignature(draft.responsible || "Guilherme Santana", "Rubrica predefinida", undefined, "Clássica"));
-  }
-
-  function signClientPredefined() {
-    updateSignature("clientSignature", makeSignature(draft.contact || draft.client || "", "Rubrica predefinida", undefined, "Clássica"));
-  }
-
   function applyEstimatorSuggestion(result: EstimatorResult, mode: "replace" | "append") {
     setDraft((current) => {
       if (!current) return current;
@@ -2515,7 +2505,6 @@ function QuoteEditorModal({
                   description="Assinatura que sairá no orçamento em nome do responsável."
                   value={draft.responsibleSignature ?? makeSignature(draft.responsible || "Guilherme Santana", "Pendente")}
                   suggestedName={draft.responsible || "Guilherme Santana"}
-                  onPredefined={signResponsiblePredefined}
                   onChange={(signature) => updateSignature("responsibleSignature", signature)}
                 />
 
@@ -2524,7 +2513,6 @@ function QuoteEditorModal({
                   description="Assinatura para aprovação do orçamento pelo cliente."
                   value={draft.clientSignature ?? makeSignature(draft.contact || draft.client || "Cliente", "Pendente")}
                   suggestedName={draft.contact || draft.client || "Cliente"}
-                  onPredefined={signClientPredefined}
                   onChange={(signature) => updateSignature("clientSignature", signature)}
                 />
               </div>
@@ -2585,224 +2573,74 @@ function SignatureEditor({
   description,
   value,
   suggestedName,
-  onPredefined,
   onChange
 }: {
   title: string;
   description: string;
   value: SignatureData;
   suggestedName: string;
-  onPredefined: () => void;
   onChange: (signature: SignatureData) => void;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawing = useRef(false);
-
-  const styles: Array<{ value: SignatureStyle; label: string; className: string }> = [
-    { value: "Clássica", label: "Clássica", className: "font-serif text-4xl italic md:text-5xl" },
-    { value: "Elegante", label: "Elegante", className: "font-serif text-5xl italic tracking-wide md:text-6xl" },
-    { value: "Moderna", label: "Moderna", className: "font-sans text-3xl font-light tracking-[.28em] uppercase md:text-4xl" },
-    { value: "Rubrica rápida", label: "Rubrica rápida", className: "font-serif text-4xl italic -skew-x-6 md:text-5xl" },
-    { value: "Formal", label: "Formal", className: "font-serif text-3xl font-bold tracking-wide md:text-4xl" }
-  ];
-
-  const currentName = value.signerName ?? "";
-  const currentStyle = value.signatureStyle ?? "Clássica";
-  const activeStyle = styles.find((item) => item.value === currentStyle) ?? styles[0];
-
-  function prepareCanvas() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const width = Math.max(rect.width, 420);
-    const height = 160;
-
-    if (canvas.width !== width * 2 || canvas.height !== height * 2) {
-      canvas.width = width * 2;
-      canvas.height = height * 2;
-
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.scale(2, 2);
-        ctx.lineWidth = 2.4;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.strokeStyle = "#ffffff";
-      }
-    }
-  }
-
-  useEffect(() => {
-    prepareCanvas();
-  }, []);
-
-  function point(event: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-
-    const rect = canvas.getBoundingClientRect();
-
-    return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
-    };
-  }
-
-  function startDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
-    prepareCanvas();
-    drawing.current = true;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-
-    const p = point(event);
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-  }
-
-  function draw(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-
-    const p = point(event);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-  }
-
-  function stopDrawing() {
-    drawing.current = false;
-  }
-
-  function clearCanvas() {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-
-    if (canvas && ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-
-    onChange({
-      ...value,
-      mode: "Pendente",
-      signatureDataUrl: undefined
-    });
-  }
-
-  function saveFreeSignature() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    onChange({
-      ...value,
-      signerName: currentName,
-      mode: "Assinatura livre",
-      signedAt: todayIso(),
-      signatureDataUrl: canvas.toDataURL("image/png")
-    });
-  }
-
-  function useStyle(style: SignatureStyle) {
-    onChange({
-      ...value,
-      signerName: currentName,
-      mode: "Rubrica predefinida",
-      signedAt: todayIso(),
-      signatureDataUrl: undefined,
-      signatureStyle: style
-    });
-  }
+  const [studioOpen, setStudioOpen] = useState(false);
+  const signed = value.mode !== "Pendente";
+  const displayName = value.signerName || suggestedName;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
-      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div>
           <p className="text-sm font-black text-volt-yellow">{title}</p>
           <p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p>
         </div>
-
-        <Badge className={value.mode === "Pendente" ? "bg-white/10 text-zinc-300 border-white/10" : "bg-volt-ok/15 text-volt-ok border-volt-ok/20"}>
-          {value.mode}
+        <Badge className={signed ? "border-volt-ok/20 bg-volt-ok/15 text-volt-ok" : "border-white/10 bg-white/10 text-zinc-300"}>
+          {signed ? "Assinatura pronta" : "Pendente"}
         </Badge>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[.035] p-4">
-        <p className="text-xs font-black uppercase tracking-[.16em] text-zinc-600">Nome exibido</p>
-        <input
-          value={currentName}
-          onChange={(event) => onChange({ ...value, signerName: event.target.value })}
-          placeholder={suggestedName || "Digite o nome do assinante"}
-          className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40"
-        />
-
-        <div className="mt-4 overflow-hidden rounded-2xl border border-dashed border-volt-yellow/30 bg-[#050505]">
-          {value.signatureDataUrl ? (
-            <img src={value.signatureDataUrl} alt={`Assinatura ${title}`} className="h-40 w-full object-contain p-4" />
-          ) : value.mode === "Rubrica predefinida" ? (
-            <div className="grid h-40 place-items-center px-4 text-center">
-              <div>
-                <p className={`${activeStyle.className} leading-tight text-white`}>
-                  {currentName || "Digite o nome"}
-                </p>
-                <p className="mt-3 text-xs font-bold text-zinc-500">{currentStyle} • rubrica predefinida</p>
-              </div>
+      {signed && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+          <div className="grid h-36 place-items-center bg-white p-3">
+            {value.signatureDataUrl ? (
+              <img src={value.signatureDataUrl} alt={`Assinatura de ${displayName}`} className="h-full max-w-full object-contain" />
+            ) : (
+              <p className="font-serif text-3xl font-bold italic text-slate-900">{displayName}</p>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3 bg-black/30 p-3">
+            <div>
+              <p className="text-xs font-black text-zinc-200">{displayName}</p>
+              <p className="mt-0.5 text-[10px] text-zinc-600">{value.mode} • {value.signatureStyle || "Estilo livre"} • {value.signedAt}</p>
             </div>
-          ) : (
-            <canvas
-              ref={canvasRef}
-              onPointerDown={startDrawing}
-              onPointerMove={draw}
-              onPointerUp={stopDrawing}
-              onPointerLeave={stopDrawing}
-              className="h-40 w-full touch-none cursor-crosshair bg-[#050505]"
-            />
-          )}
-        </div>
-
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-black uppercase tracking-[.16em] text-zinc-600">Rubricas predefinidas</p>
-          <div className="grid gap-2 md:grid-cols-5">
-            {styles.map((style) => (
-              <button
-                key={style.value}
-                type="button"
-                onClick={() => useStyle(style.value)}
-                className={`rounded-2xl border px-3 py-3 text-xs font-black transition ${
-                  value.mode === "Rubrica predefinida" && currentStyle === style.value
-                    ? "border-volt-yellow bg-volt-yellow text-black"
-                    : "border-white/10 text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow"
-                }`}
-              >
-                {style.label}
-              </button>
-            ))}
+            <CheckCircle2 className="shrink-0 text-volt-ok" size={20} />
           </div>
         </div>
+      )}
 
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
-          <button type="button" onClick={onPredefined} className="rounded-2xl border border-white/10 px-4 py-3 text-xs font-black text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow">
-            Usar padrão
-          </button>
-          <button type="button" onClick={saveFreeSignature} className="rounded-2xl border border-white/10 px-4 py-3 text-xs font-black text-zinc-300 hover:border-volt-yellow/30 hover:text-volt-yellow">
-            Salvar livre
-          </button>
-          <button type="button" onClick={clearCanvas} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-xs font-black text-red-200">
-            Limpar
+      {!studioOpen ? (
+        <button type="button" onClick={() => setStudioOpen(true)} className={`${signed ? "btn-ghost" : "btn-primary"} mt-4 w-full`}>
+          {signed ? "Alterar assinatura" : "Criar assinatura"}
+        </button>
+      ) : (
+        <div className="mt-4">
+          <SignatureStudio
+            key={`${title}-${value.mode}-${value.signedAt}`}
+            initialValue={{ ...value, signerName: displayName }}
+            requireTerms={false}
+            compact
+            confirmLabel="Usar esta assinatura"
+            onConfirm={(signature) => {
+              onChange(signature);
+              setStudioOpen(false);
+            }}
+          />
+          <button type="button" onClick={() => setStudioOpen(false)} className="mt-2 w-full rounded-2xl border border-white/10 px-4 py-3 text-xs font-black text-zinc-400 hover:text-white">
+            Cancelar
           </button>
         </div>
-
-        <p className="mt-3 text-xs leading-5 text-zinc-600">
-          Data da assinatura: {value.signedAt || "pendente"}
-        </p>
-      </div>
+      )}
     </div>
   );
 }
-
 function EditorField({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return (
     <div className={`rounded-2xl border border-white/10 bg-white/[.025] p-3 ${full ? "md:col-span-2" : ""}`}>
