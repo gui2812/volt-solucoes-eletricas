@@ -767,7 +767,8 @@ export default function CotacoesPage() {
         acceptedTerms: result.clientSignature.acceptedTerms ?? true,
         brushStyle: result.clientSignature.brushStyle,
         inkColor: result.clientSignature.inkColor,
-        initials: result.clientSignature.initials
+        initials: result.clientSignature.initials,
+        evidence: result.clientSignature.evidence
       } as SignatureData;
 
       pdfQuote = {
@@ -1164,7 +1165,8 @@ export default function CotacoesPage() {
             acceptedTerms: result.clientSignature.acceptedTerms ?? true,
             brushStyle: result.clientSignature.brushStyle,
             inkColor: result.clientSignature.inkColor,
-            initials: result.clientSignature.initials
+            initials: result.clientSignature.initials,
+            evidence: result.clientSignature.evidence
           } as SignatureData
         : quote.clientSignature;
 
