@@ -32,6 +32,7 @@ import {
   makeContractSignatureWhatsAppLink
 } from "@/utils/assinaturaRemota";
 import { openContractPdf, openContractSignatureCertificate } from "@/utils/contractPdfVolt";
+import { deleteBusinessDocument, loadBusinessDocumentsState, mergeCloudWithLocal, saveBusinessDocuments } from "@/services/businessDocuments";
 import {
   AlertTriangle,
   Building2,
@@ -103,6 +104,9 @@ function Field({ label, children, full = false }: { label: string; children: Rea
 
 const inputClass = "mt-2 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40";
 
+const PROFILE_DOCUMENT_ID = "volt-company-profile";
+type CompanyProfileDocument = ContractCompanyProfile & { id: string };
+
 function loadCompanyProfile() {
   try {
     const saved = localStorage.getItem(CONTRACT_COMPANY_PROFILE_KEY);
@@ -131,37 +135,93 @@ export default function ContratosPage() {
   const [signingContract, setSigningContract] = useState<Contract | null>(null);
 
   useEffect(() => {
-    try {
-      const companyProfile = loadCompanyProfile();
-      setProfile(companyProfile);
-      const saved = localStorage.getItem(CONTRACT_STORAGE_KEY);
-      let nextContracts = saved
-        ? (JSON.parse(saved) as unknown[]).map(normalizeContract).filter((item): item is Contract => Boolean(item))
-        : [];
-      const pending = localStorage.getItem(CONTRACT_IMPORT_KEY);
-      if (pending) {
-        const imported = normalizeContract(JSON.parse(pending));
-        if (imported) {
-          nextContracts = [imported, ...nextContracts.filter((item) => item.id !== imported.id)];
-          setSelectedId(imported.id);
-          setEditingId(imported.id);
-          setDraft(imported);
-          setEditorOpen(true);
+    let active = true;
+
+    async function hydrateContracts() {
+      const localProfile = loadCompanyProfile();
+      let localContracts: Contract[] = [];
+      let pendingImported: Contract | null = null;
+
+      try {
+        const saved = localStorage.getItem(CONTRACT_STORAGE_KEY);
+        localContracts = saved
+          ? (JSON.parse(saved) as unknown[]).map(normalizeContract).filter((item): item is Contract => Boolean(item))
+          : [];
+
+        const pending = localStorage.getItem(CONTRACT_IMPORT_KEY);
+        if (pending) {
+          pendingImported = normalizeContract(JSON.parse(pending));
+          if (pendingImported) {
+            localContracts = [pendingImported, ...localContracts.filter((item) => item.id !== pendingImported?.id)];
+          }
+          localStorage.removeItem(CONTRACT_IMPORT_KEY);
         }
-        localStorage.removeItem(CONTRACT_IMPORT_KEY);
+      } catch {
+        localContracts = [];
+      }
+
+      let nextContracts = localContracts;
+      let nextProfile = localProfile;
+
+      try {
+        const [cloudRaw, cloudProfiles] = await Promise.all([
+          loadBusinessDocumentsState<unknown>("contract"),
+          loadBusinessDocumentsState<CompanyProfileDocument>("company_profile")
+        ]);
+        const cloudContracts = cloudRaw.documents
+          .map(normalizeContract)
+          .filter((item): item is Contract => Boolean(item));
+        const deletedContractIds = new Set(cloudRaw.deletedIds);
+        const migratableLocalContracts = localContracts.filter((item) => !deletedContractIds.has(item.id));
+        const merged = mergeCloudWithLocal(cloudContracts, migratableLocalContracts);
+        nextContracts = merged.merged;
+
+        if (merged.localOnly.length) {
+          await saveBusinessDocuments("contract", merged.localOnly);
+        }
+
+        const cloudProfile = cloudProfiles.documents.find((item) => item.id === PROFILE_DOCUMENT_ID);
+        if (cloudProfile) {
+          const { id: _id, ...profileData } = cloudProfile;
+          nextProfile = { ...defaultCompanyProfile, ...profileData };
+          localStorage.setItem(CONTRACT_COMPANY_PROFILE_KEY, JSON.stringify(nextProfile));
+        } else {
+          await saveBusinessDocuments("company_profile", [{ id: PROFILE_DOCUMENT_ID, ...localProfile }]);
+        }
+      } catch (error) {
+        console.warn("Supabase indisponível para contratos; usando cache local.", error);
+      }
+
+      if (!active) return;
+      setProfile(nextProfile);
+      setContracts(nextContracts);
+
+      if (pendingImported) {
+        const imported = nextContracts.find((item) => item.id === pendingImported?.id) || pendingImported;
+        setSelectedId(imported.id);
+        setEditingId(imported.id);
+        setDraft(imported);
+        setEditorOpen(true);
       } else if (nextContracts[0]) {
         setSelectedId(nextContracts[0].id);
       }
-      setContracts(nextContracts);
-    } catch {
-      setContracts([]);
-    } finally {
+
       setReady(true);
     }
+
+    void hydrateContracts();
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem(CONTRACT_STORAGE_KEY, JSON.stringify(contracts));
+    if (!ready) return;
+    localStorage.setItem(CONTRACT_STORAGE_KEY, JSON.stringify(contracts));
+    const timer = window.setTimeout(() => {
+      void saveBusinessDocuments("contract", contracts).catch((error) => {
+        console.warn("Não foi possível sincronizar contratos com o Supabase.", error);
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
   }, [contracts, ready]);
 
   const filtered = useMemo(() => contracts.filter((contract) => {
@@ -298,8 +358,11 @@ export default function ContratosPage() {
 
   function saveProfile() {
     localStorage.setItem(CONTRACT_COMPANY_PROFILE_KEY, JSON.stringify(profile));
+    void saveBusinessDocuments("company_profile", [{ id: PROFILE_DOCUMENT_ID, ...profile }]).catch((error) => {
+      console.warn("Não foi possível sincronizar os dados da Volt com o Supabase.", error);
+    });
     setProfileOpen(false);
-    alert("Dados da Volt salvos para os próximos contratos.");
+    alert("Dados da Volt salvos e sincronizados para os próximos contratos.");
   }
 
   function applyProfileToDraft() {
@@ -545,6 +608,9 @@ export default function ContratosPage() {
   function remove(contract: Contract) {
     if (!window.confirm(`Excluir o contrato ${contract.id}?`)) return;
     setContracts((current) => current.filter((item) => item.id !== contract.id));
+    void deleteBusinessDocument("contract", contract.id).catch((error) => {
+      console.warn("Não foi possível excluir o contrato do Supabase.", error);
+    });
     setSelectedId("");
   }
 
