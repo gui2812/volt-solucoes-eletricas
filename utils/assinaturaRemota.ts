@@ -38,6 +38,21 @@ export type RemoteSignatureQuoteSnapshot = {
   materials?: RemoteSignatureMaterial[];
 };
 
+export type RemoteSignatureContractSnapshot = {
+  id: string;
+  documentType: "contract";
+  client: {
+    name: string;
+    representative?: string;
+    phone?: string;
+    email?: string;
+  };
+  contractor: {
+    name: string;
+    representative?: string;
+  };
+};
+
 export type RemoteSignatureMode =
   | "Pendente"
   | "Assinatura livre"
@@ -98,6 +113,37 @@ export async function createRemoteSignatureLink(snapshot: RemoteSignatureQuoteSn
   };
 }
 
+export async function createRemoteContractSignatureLink(contract: RemoteSignatureContractSnapshot) {
+  const response = await fetch("/api/signature/create", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      documentType: "contract",
+      quoteId: contract.id,
+      quoteSnapshot: contract,
+      clientName: contract.client.representative || contract.client.name,
+      clientPhone: contract.client.phone || "",
+      clientEmail: contract.client.email || "",
+      responsibleName: contract.contractor.representative || contract.contractor.name,
+      expiresInDays: 10
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Erro ao gerar link de assinatura do contrato.");
+  }
+
+  return data as {
+    ok: true;
+    token: string;
+    signingUrl: string;
+  };
+}
+
 export async function checkRemoteSignatureStatus(quoteId: string) {
   const response = await fetch(`/api/signature/by-quote/${encodeURIComponent(quoteId)}`, {
     cache: "no-store"
@@ -136,7 +182,7 @@ export async function checkRemoteSignatureByToken(token: string) {
     found: true,
     status: data.status,
     token,
-    signingUrl: `/assinar/${token}`,
+    signingUrl: `${data.quoteSnapshot?.documentType === "contract" ? "/assinar-contrato" : "/assinar"}/${token}`,
     signedAt: data.signedAt,
     expiresAt: data.expiresAt,
     clientSignature: data.clientSignature
@@ -154,6 +200,26 @@ export function makeSignatureWhatsAppLink(phone: string | undefined, signingUrl:
     signingUrl,
     "",
     "Você não precisa acessar nenhum sistema. É só abrir o link pelo celular, conferir o orçamento e assinar com o dedo ou escolher uma rubrica."
+  ].join("\n");
+
+  return `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+}
+
+export function makeContractSignatureWhatsAppLink(
+  phone: string | undefined,
+  signingUrl: string,
+  contractId: string
+) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  const phoneNumber = digits.startsWith("55") ? digits : `55${digits}`;
+
+  const message = [
+    "Olá! Segue o contrato da Volt Soluções Elétricas para leitura e assinatura eletrônica:",
+    "",
+    `Contrato: ${contractId}`,
+    signingUrl,
+    "",
+    "Leia todas as cláusulas antes de assinar. Você poderá assinar pelo celular e guardar sua cópia em PDF."
   ].join("\n");
 
   return `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
