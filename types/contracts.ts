@@ -58,6 +58,8 @@ export type ContractClauses = {
 export type Contract = {
   documentType: "contract";
   schemaVersion: 1;
+  documentVersion: number;
+  documentHash?: string;
   id: string;
   quoteId: string;
   title: string;
