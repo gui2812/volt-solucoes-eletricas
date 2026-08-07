@@ -1,19 +1,10 @@
+import type { SignatureData, SignatureMode } from "@/types/signatures";
+
 export type ContractStatus = "Rascunho" | "Pronto para envio" | "Enviado" | "Assinado" | "Cancelado";
 
-export type ContractSignatureMode =
-  | "Pendente"
-  | "Assinatura livre"
-  | "Rubrica predefinida"
-  | "Nome digitado + aceite";
+export type ContractSignatureMode = SignatureMode;
 
-export type ContractSignature = {
-  signerName: string;
-  mode: ContractSignatureMode;
-  signedAt: string;
-  signatureDataUrl?: string;
-  signatureStyle?: "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
-  acceptedTerms?: boolean;
-};
+export type ContractSignature = SignatureData;
 
 export type ContractParty = {
   name: string;
