@@ -1,4 +1,5 @@
 import type { Contract, ContractSignature } from "@/types/contracts";
+import { getDeviceLabel, shortContractHash } from "@/services/contractProfessional";
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -22,6 +23,14 @@ function formatDate(value?: string) {
   if (!value) return "—";
   const date = new Date(value.length === 10 ? `${value}T12:00:00` : value);
   return Number.isNaN(date.getTime()) ? escapeHtml(value) : date.toLocaleDateString("pt-BR");
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "Não registrado";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? escapeHtml(value)
+    : date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "medium" });
 }
 
 function brl(value: number) {
@@ -55,6 +64,70 @@ function signatureVisual(signature: ContractSignature | undefined, fallback: str
   }
   return `<div class="signature-art pending">Assinatura pendente</div><div class="signature-line"></div><strong>${name}</strong><small>Aguardando aceite eletrônico</small>`;
 }
+
+function auditSigner(title: string, partyName: string, document: string, documentHash?: string, signature?: ContractSignature) {
+  const signed = Boolean(signature?.acceptedTerms);
+  const evidence = signature?.evidence;
+  const image = signature?.signatureDataUrl?.startsWith("data:image/") ? signature.signatureDataUrl : "";
+  const hashMatch = Boolean(
+    signed &&
+    evidence?.documentHash &&
+    evidence.documentHash === documentHash
+  );
+
+  return `
+    <article class="certificate-signer ${signed ? "signed" : "pending"}">
+      <div class="certificate-signer-head"><div><span>${escapeHtml(title)}</span><strong>${escapeHtml(signature?.signerName || partyName)}</strong></div><b>${signed ? "ASSINADA" : "PENDENTE"}</b></div>
+      <div class="certificate-signature-art">${image ? `<img src="${image}" alt="Assinatura">` : signed ? `<em>${escapeHtml(signature?.signerName || partyName)}</em>` : "Aguardando assinatura"}</div>
+      <dl>
+        <div><dt>Documento da parte</dt><dd>${escapeHtml(document || "Não informado")}</dd></div>
+        <div><dt>Modalidade</dt><dd>${escapeHtml(signature?.mode || "Pendente")}</dd></div>
+        <div><dt>Data declarada</dt><dd>${formatDate(signature?.signedAt)}</dd></div>
+        <div><dt>Data e hora técnica</dt><dd>${formatDateTime(evidence?.signedAtIso)}</dd></div>
+        <div><dt>Origem</dt><dd>${escapeHtml(evidence?.source || "Não registrada")}</dd></div>
+        <div><dt>Dispositivo</dt><dd>${escapeHtml(getDeviceLabel(evidence?.userAgent))}</dd></div>
+        ${evidence?.ipAddress ? `<div><dt>Endereço IP</dt><dd>${escapeHtml(evidence.ipAddress)}</dd></div>` : ""}
+        ${evidence?.tokenReference ? `<div><dt>Referência do link</dt><dd>${escapeHtml(evidence.tokenReference)}</dd></div>` : ""}
+        ${signed && evidence?.documentHash ? `<div><dt>Vínculo ao documento</dt><dd>${hashMatch ? "Registrado" : "Hash registrado"}</dd></div>` : ""}
+      </dl>
+    </article>
+  `;
+}
+
+function certificateContent(contract: Contract, embedded = false) {
+  const hasBothSignatures = Boolean(contract.contractorSignature?.acceptedTerms && contract.clientSignature?.acceptedTerms);
+  const recentHistory = [...contract.history].reverse().slice(0, 6);
+
+  return `
+    <section class="certificate-page ${embedded ? "embedded" : ""}">
+      <header class="certificate-header">
+        <div class="brand"><img src="/img/logo.png" alt="Volt"><div><strong>Volt Soluções Elétricas</strong><span>Comprovante de assinaturas eletrônicas</span></div></div>
+        <div class="certificate-status ${hasBothSignatures ? "complete" : "partial"}">${hasBothSignatures ? "CONCLUÍDO" : "EM ANDAMENTO"}</div>
+      </header>
+      <div class="certificate-title"><span>RELATÓRIO DE EVIDÊNCIAS</span><h1>Comprovante de assinaturas</h1><p>Registro técnico vinculado ao contrato ${escapeHtml(contract.id)}.</p></div>
+      <div class="certificate-summary">
+        <div><span>Contrato</span><strong>${escapeHtml(contract.id)}</strong></div>
+        <div><span>Versão</span><strong>${contract.documentVersion || 1}</strong></div>
+        <div><span>Orçamento</span><strong>${escapeHtml(contract.quoteId)}</strong></div>
+        <div><span>Status</span><strong>${escapeHtml(contract.status)}</strong></div>
+        <div><span>Contratada</span><strong>${escapeHtml(contract.contractor.name)}</strong></div>
+        <div><span>Contratante</span><strong>${escapeHtml(contract.client.name)}</strong></div>
+      </div>
+      <div class="certificate-hash"><span>Identidade SHA‑256 do conteúdo assinado</span><code>${escapeHtml(contract.documentHash || "Hash ainda não gerado")}</code><small>Visualização resumida: ${escapeHtml(shortContractHash(contract.documentHash))}</small></div>
+      <div class="certificate-signers">
+        ${auditSigner("CONTRATADA — VOLT", contract.contractor.representative || contract.contractor.name, contract.contractor.document, contract.documentHash, contract.contractorSignature)}
+        ${auditSigner("CONTRATANTE — CLIENTE", contract.client.representative || contract.client.name, contract.client.document, contract.documentHash, contract.clientSignature)}
+      </div>
+      <section class="certificate-history"><h2>Linha do tempo do documento</h2>${recentHistory.map((entry) => `<p><i></i>${escapeHtml(entry)}</p>`).join("") || "<p>Sem eventos registrados.</p>"}</section>
+      <section class="certificate-legal"><strong>Sobre este comprovante</strong><p>Este relatório reúne a versão do documento, a identificação criptográfica do conteúdo, as manifestações das partes e as evidências técnicas disponíveis. Os dados de IP e dispositivo, quando registrados, são apresentados exclusivamente para rastreabilidade do aceite eletrônico.</p></section>
+      <footer class="certificate-footer">Emitido em ${new Date().toLocaleString("pt-BR")} • Volt Soluções Elétricas • ${escapeHtml(contract.contractor.email)}</footer>
+    </section>
+  `;
+}
+
+const certificateCss = `
+  .certificate-page{margin-top:28px;border:2px solid #18181b;border-radius:16px;padding:18px;background:#fff;color:#18181b;break-inside:avoid}.certificate-page.embedded{break-before:page;page-break-before:always;margin-top:0;min-height:245mm}.certificate-header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:4px solid #f2c300;padding-bottom:12px}.certificate-status{border-radius:999px;padding:7px 11px;font-size:8.5pt;font-weight:900;letter-spacing:.08em}.certificate-status.complete{background:#dcfce7;color:#166534;border:1px solid #86efac}.certificate-status.partial{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}.certificate-title{margin:22px 0 15px}.certificate-title span{color:#a16207;font-size:8.5pt;font-weight:900;letter-spacing:.14em}.certificate-title h1{margin:4px 0 2px;font-size:20pt}.certificate-title p{margin:0;color:#71717a}.certificate-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.certificate-summary div{border:1px solid #d4d4d8;border-radius:9px;padding:8px}.certificate-summary span,.certificate-hash span{display:block;color:#71717a;font-size:7.5pt;font-weight:900;text-transform:uppercase}.certificate-summary strong{display:block;margin-top:3px;font-size:9pt}.certificate-hash{margin-top:10px;border:1px solid #93c5fd;background:#eff6ff;border-radius:10px;padding:10px}.certificate-hash code{display:block;margin-top:5px;word-break:break-all;font-size:7.5pt;color:#1e3a8a}.certificate-hash small{display:block;margin-top:4px;color:#64748b}.certificate-signers{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.certificate-signer{border:1px solid #d4d4d8;border-radius:12px;overflow:hidden}.certificate-signer.signed{border-color:#86efac}.certificate-signer-head{display:flex;justify-content:space-between;gap:8px;padding:10px;background:#f8fafc}.certificate-signer-head span{display:block;color:#71717a;font-size:7pt;font-weight:900}.certificate-signer-head strong{display:block;margin-top:2px;font-size:9pt}.certificate-signer-head b{font-size:7pt;color:#166534}.certificate-signer.pending .certificate-signer-head b{color:#71717a}.certificate-signature-art{height:58px;display:flex;align-items:center;justify-content:center;padding:7px;border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7;color:#a1a1aa;font-size:8pt}.certificate-signature-art img{max-height:52px;max-width:100%;object-fit:contain}.certificate-signature-art em{font-family:cursive;font-size:20pt;color:#111827}.certificate-signer dl{margin:0;padding:8px}.certificate-signer dl div{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px dashed #e4e4e7;font-size:7.2pt}.certificate-signer dt{color:#71717a}.certificate-signer dd{margin:0;text-align:right;font-weight:700}.certificate-history{margin-top:12px;border:1px solid #d4d4d8;border-radius:10px;padding:10px}.certificate-history h2{margin:0 0 7px;font-size:9pt;text-transform:uppercase}.certificate-history p{display:flex;gap:7px;margin:4px 0;font-size:7.5pt;color:#52525b}.certificate-history i{width:6px;height:6px;margin-top:4px;border-radius:50%;background:#f2c300;flex:none}.certificate-legal{margin-top:10px;border:1px solid #fde68a;background:#fffbeb;border-radius:10px;padding:10px;font-size:7.5pt}.certificate-legal p{margin:4px 0 0}.certificate-footer{margin-top:12px;border-top:1px solid #d4d4d8;padding-top:7px;text-align:center;color:#71717a;font-size:7pt}
+`;
 
 export function generateContractPdfHtml(contract: Contract, purpose: "signature" | "final" = "signature") {
   const scopeRows = contract.scopeItems.map((item, index) => `
@@ -111,11 +184,12 @@ export function generateContractPdfHtml(contract: Contract, purpose: "signature"
   <html lang="pt-BR"><head><meta charset="utf-8"><base href="${typeof window !== "undefined" ? `${window.location.origin}/` : ""}"><title>${escapeHtml(contract.id)} — Contrato Volt</title>
   <style>
     @page{size:A4;margin:18mm 16mm 18mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}html{font-size:12pt}body{margin:0;background:#d4d4d8;color:#18181b;font-family:Arial,Helvetica,sans-serif;font-size:12pt;line-height:1.55}.document{width:210mm;min-height:297mm;margin:0 auto;background:white;padding:18mm 16mm;box-shadow:0 12px 50px rgba(0,0,0,.2)}header{display:flex;align-items:center;justify-content:space-between;gap:20px;border-bottom:4px solid #f2c300;padding-bottom:12px}.brand{display:flex;align-items:center;gap:12px}.brand img{width:64px;height:64px;object-fit:contain}.brand strong{display:block;font-size:17pt;text-transform:uppercase}.brand span{display:block;color:#a16207;font-size:9pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.meta{text-align:right}.meta strong{font-size:14pt}.meta small{display:block;color:#71717a}.title{text-align:center;margin:28px 0 20px}.title h1{font-size:18pt;margin:0;text-transform:uppercase}.title p{margin:7px 0 0;color:#52525b}.parties{border:1px solid #d4d4d8;border-radius:12px;padding:14px}.parties p{margin:8px 0;text-align:justify}.parties b{color:#854d0e}.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:18px 0}.summary div{border:1px solid #d4d4d8;border-radius:10px;padding:10px}.summary span{display:block;color:#71717a;font-size:8.5pt;font-weight:800;text-transform:uppercase}.summary strong{display:block;margin-top:3px}.object,.clause{margin-top:18px}.object h2,.clause h2,.table-section h2,.signatures h2{margin:0 0 8px;border-left:5px solid #f2c300;padding-left:9px;font-size:12pt;text-transform:uppercase}.object p,.clause p{margin:7px 0;text-align:justify}.clause{break-inside:auto}.clause.important{border:2px solid #f2c300;border-radius:12px;background:#fffbeb;padding:13px}.table-section{margin-top:20px}table{width:100%;border-collapse:collapse;font-size:10pt}thead{display:table-header-group}th{background:#18181b;color:white;padding:8px;text-align:left;text-transform:uppercase;font-size:8.5pt}td{padding:8px;border-bottom:1px solid #e4e4e7;vertical-align:top}td small{display:block;color:#71717a;margin-top:3px}.commercial{border:2px solid #18181b;border-radius:12px;margin-top:20px;padding:14px}.commercial h2{margin:0 0 9px;font-size:13pt}.commercial-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.commercial-grid div{border-top:1px solid #d4d4d8;padding-top:7px}.commercial-grid span{display:block;color:#71717a;font-size:8.5pt;text-transform:uppercase;font-weight:800}.signing-callout{border:2px solid #f2c300;background:#fffbeb;border-radius:14px;padding:14px;margin-top:24px;break-inside:avoid}.signing-callout p{margin:6px 0}.signing-callout code{display:block;word-break:break-all;font-size:8.5pt}.signatures{margin-top:30px;break-inside:avoid}.signature-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:34px}.signature-box{text-align:center}.signature-art{height:72px;display:flex;align-items:center;justify-content:center;font-size:19pt}.signature-art img{max-width:100%;max-height:70px;object-fit:contain}.signature-script{font-family:cursive;font-style:italic;font-size:24pt}.signature-art.typed{gap:7px;font-weight:700}.signature-art.typed span{color:#15803d}.signature-art.pending{color:#a1a1aa;font-size:11pt}.signature-line{border-top:1px solid #18181b}.signature-box strong,.signature-box small{display:block;margin-top:5px}.signature-box small{color:#71717a}.legal-note{margin-top:24px;border:1px solid #d4d4d8;border-radius:10px;padding:12px;font-size:9.5pt}.footer{margin-top:28px;border-top:1px solid #d4d4d8;padding-top:9px;color:#71717a;font-size:8.5pt;text-align:center}p{orphans:3;widows:3}tr,.summary div,.commercial,.signatures{break-inside:avoid}@media print{body{background:white}.document{width:auto;min-height:auto;margin:0;padding:0;box-shadow:none}.no-print{display:none}}
+    ${certificateCss}
   </style></head><body><main class="document">
-    <header><div class="brand"><img src="/img/logo.png" alt="Volt"><div><strong>Volt Soluções Elétricas</strong><span>Energia que conecta. Soluções que protegem.</span></div></div><div class="meta"><strong>${escapeHtml(contract.id)}</strong><small>Orçamento ${escapeHtml(contract.quoteId)}</small><small>Emissão ${formatDate(contract.createdAt)}</small></div></header>
+    <header><div class="brand"><img src="/img/logo.png" alt="Volt"><div><strong>Volt Soluções Elétricas</strong><span>Energia que conecta. Soluções que protegem.</span></div></div><div class="meta"><strong>${escapeHtml(contract.id)}</strong><small>Versão ${contract.documentVersion || 1} • Orçamento ${escapeHtml(contract.quoteId)}</small><small>Emissão ${formatDate(contract.createdAt)}</small></div></header>
     <section class="title"><h1>${escapeHtml(contract.title)}</h1><p>Instrumento particular de prestação de serviços elétricos</p></section>
     <section class="parties"><p><b>CONTRATADA:</b> ${partyText(contract.contractor)}.</p><p><b>CONTRATANTE:</b> ${partyText(contract.client)}.</p><p>As partes acima identificadas celebram este contrato conforme as condições seguintes, o orçamento vinculado e os anexos expressamente mencionados.</p></section>
-    <section class="summary"><div><span>Local do serviço</span><strong>${escapeHtml(contract.serviceLocation || "Não informado")}</strong></div><div><span>Valor total</span><strong>${brl(contract.totalValue)}</strong></div><div><span>Prazo</span><strong>${escapeHtml(contract.executionDeadline)}</strong></div><div><span>Garantia</span><strong>${escapeHtml(contract.warranty)}</strong></div></section>
+    <section class="summary"><div><span>Local do serviço</span><strong>${escapeHtml(contract.serviceLocation || "Não informado")}</strong></div><div><span>Valor total</span><strong>${brl(contract.totalValue)}</strong></div><div><span>Prazo</span><strong>${escapeHtml(contract.executionDeadline)}</strong></div><div><span>Garantia</span><strong>${escapeHtml(contract.warranty)}</strong></div><div><span>Pagamento</span><strong>${escapeHtml(contract.paymentTerms)}</strong></div><div><span>Escopo e materiais</span><strong>${contract.scopeItems.length} itens • ${contract.materials.length} materiais</strong></div></section>
     <section class="object"><h2>Objeto do contrato</h2>${paragraphs(contract.objectDescription)}</section>
     <section class="table-section"><h2>Escopo detalhado</h2><table><thead><tr><th>Item</th><th>Descrição</th><th>Quantidade</th><th>Valor</th></tr></thead><tbody>${scopeRows || '<tr><td colspan="4">Escopo não preenchido.</td></tr>'}</tbody></table></section>
     ${contract.materials.length ? `<section class="table-section"><h2>Anexo I — Relação de materiais</h2><table><thead><tr><th>Item</th><th>Material / especificação</th><th>Quantidade</th></tr></thead><tbody>${materialRows}</tbody></table></section>` : ""}
@@ -125,7 +199,8 @@ export function generateContractPdfHtml(contract: Contract, purpose: "signature"
     ${contract.additionalNotes ? `<section class="clause"><h2>Condições adicionais</h2>${paragraphs(contract.additionalNotes)}</section>` : ""}
     ${signingBlock}
     <section class="signatures"><h2>Manifestação das partes</h2><p>As partes declaram que tiveram acesso ao conteúdo integral, puderam esclarecer dúvidas e recebem uma cópia deste instrumento.</p><div class="signature-grid"><div class="signature-box">${signatureVisual(contract.contractorSignature, contract.contractor.representative || contract.contractor.name)}<small>CONTRATADA — ${escapeHtml(contract.contractor.document)}</small></div><div class="signature-box">${signatureVisual(contract.clientSignature, contract.client.representative || contract.client.name)}<small>CONTRATANTE — ${escapeHtml(contract.client.document)}</small></div></div></section>
-    <section class="legal-note"><strong>Registro eletrônico</strong><p>Documento ${escapeHtml(contract.id)}, versão ${contract.schemaVersion}, vinculado ao orçamento ${escapeHtml(contract.quoteId)}. Status: ${escapeHtml(contract.status)}. A assinatura eletrônica registra manifestação de vontade e evidências técnicas; a adequação jurídica do modelo deve ser revisada para as particularidades de cada contratação.</p></section>
+    <section class="legal-note"><strong>Registro eletrônico</strong><p>Documento ${escapeHtml(contract.id)}, versão contratual ${contract.documentVersion || 1}, vinculado ao orçamento ${escapeHtml(contract.quoteId)}. Status: ${escapeHtml(contract.status)}. Identificação: ${escapeHtml(shortContractHash(contract.documentHash))}. A assinatura eletrônica registra manifestação de vontade e evidências técnicas; a adequação jurídica do modelo deve ser revisada para as particularidades de cada contratação.</p></section>
+    ${purpose === "final" && (contract.contractorSignature?.acceptedTerms || contract.clientSignature?.acceptedTerms) ? certificateContent(contract, true) : ""}
     <footer class="footer">Volt Soluções Elétricas • ${escapeHtml(contract.contractor.phone)} • ${escapeHtml(contract.contractor.email)} • ${escapeHtml(contract.contractor.city)}</footer>
   </main></body></html>`;
 }
@@ -135,6 +210,22 @@ export function openContractPdf(contract: Contract, purpose: "signature" | "fina
   if (!popup) throw new Error("Permita pop-ups para gerar o contrato em PDF.");
   popup.document.open();
   popup.document.write(generateContractPdfHtml(contract, purpose));
+  popup.document.close();
+  popup.focus();
+  setTimeout(() => popup.print(), 700);
+}
+
+export function generateContractCertificateHtml(contract: Contract) {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><base href="${typeof window !== "undefined" ? `${window.location.origin}/` : ""}"><title>${escapeHtml(contract.id)} — Comprovante de assinaturas</title><style>
+    @page{size:A4;margin:14mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}body{margin:0;background:#d4d4d8;color:#18181b;font-family:Arial,Helvetica,sans-serif}.certificate-document{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:14mm;box-shadow:0 12px 50px rgba(0,0,0,.2)}.brand{display:flex;align-items:center;gap:12px}.brand img{width:54px;height:54px;object-fit:contain}.brand strong{display:block;font-size:15pt;text-transform:uppercase}.brand span{display:block;color:#a16207;font-size:8pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase}${certificateCss}@media print{body{background:#fff}.certificate-document{width:auto;min-height:auto;margin:0;padding:0;box-shadow:none}.certificate-page{border:none;padding:0}}
+  </style></head><body><main class="certificate-document">${certificateContent(contract)}</main></body></html>`;
+}
+
+export function openContractSignatureCertificate(contract: Contract) {
+  const popup = window.open("", "_blank");
+  if (!popup) throw new Error("Permita pop-ups para gerar o comprovante de assinaturas.");
+  popup.document.open();
+  popup.document.write(generateContractCertificateHtml(contract));
   popup.document.close();
   popup.focus();
   setTimeout(() => popup.print(), 700);
