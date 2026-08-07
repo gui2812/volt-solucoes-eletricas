@@ -1,3 +1,5 @@
+import type { SignatureBrush, SignatureInk, SignatureMode, SignatureStyle } from "@/types/signatures";
+
 export type RemoteSignatureQuoteItem = {
   kind?: string;
   code?: string;
@@ -53,18 +55,9 @@ export type RemoteSignatureContractSnapshot = {
   };
 };
 
-export type RemoteSignatureMode =
-  | "Pendente"
-  | "Assinatura livre"
-  | "Rubrica predefinida"
-  | "Nome digitado + aceite";
+export type RemoteSignatureMode = SignatureMode;
 
-export type RemoteSignatureStyle =
-  | "Clássica"
-  | "Elegante"
-  | "Moderna"
-  | "Rubrica rápida"
-  | "Formal";
+export type RemoteSignatureStyle = SignatureStyle;
 
 export type RemoteSignatureCheckResult = {
   found: boolean;
@@ -80,6 +73,9 @@ export type RemoteSignatureCheckResult = {
     signatureDataUrl?: string;
     signatureStyle?: RemoteSignatureStyle;
     acceptedTerms?: boolean;
+    brushStyle?: SignatureBrush;
+    inkColor?: SignatureInk;
+    initials?: string;
   };
 };
 
