@@ -28,6 +28,16 @@ export type SignatureBrush =
 
 export type SignatureInk = "Preta" | "Azul";
 
+export type SignatureEvidence = {
+  signedAtIso: string;
+  source: "Painel interno" | "Link público";
+  ipAddress?: string;
+  userAgent?: string;
+  documentHash?: string;
+  tokenReference?: string;
+  verifiedAt?: string;
+};
+
 export type SignatureData = {
   signerName: string;
   mode: SignatureMode;
@@ -38,5 +48,5 @@ export type SignatureData = {
   brushStyle?: SignatureBrush;
   inkColor?: SignatureInk;
   initials?: string;
+  evidence?: SignatureEvidence;
 };
-
