@@ -86,6 +86,7 @@ export const config = {
     "/backup/:path*",
     "/sistemas/:path*",
     "/circuitos/:path*",
-    "/api/ai/:path*"
+    "/api/ai/:path*",
+    "/api/business-documents/:path*"
   ]
 };
