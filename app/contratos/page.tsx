@@ -1,6 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { SignatureStudio } from "@/components/signatures/signature-studio";
 import {
   CONTRACT_COMPANY_PROFILE_KEY,
   CONTRACT_IMPORT_KEY,
@@ -18,6 +19,7 @@ import type {
   ContractScopeItem,
   ContractStatus
 } from "@/types/contracts";
+import type { SignatureData } from "@/types/signatures";
 import {
   checkRemoteSignatureByToken,
   checkRemoteSignatureStatus,
@@ -133,6 +135,7 @@ export default function ContratosPage() {
   const [statusFilter, setStatusFilter] = useState<"Todos" | ContractStatus>("Todos");
   const [ready, setReady] = useState(false);
   const [busyId, setBusyId] = useState("");
+  const [signingContract, setSigningContract] = useState<Contract | null>(null);
 
   useEffect(() => {
     try {
@@ -330,21 +333,20 @@ export default function ContratosPage() {
       alert("Preencha o representante e o CPF/CNPJ da Volt antes de registrar o aceite da CONTRATADA.");
       return;
     }
-    if (!window.confirm(`Registrar o aceite eletrônico de ${contract.contractor.representative} pela CONTRATADA?\n\nFaça isso somente se você estiver autorizado a assinar pela Volt.`)) return;
+    setSigningContract(contract);
+  }
+
+  function completeVoltSignature(signature: SignatureData) {
+    if (!signingContract) return;
     const next: Contract = {
-      ...contract,
-      contractorSignature: {
-        signerName: contract.contractor.representative,
-        mode: "Nome digitado + aceite",
-        signedAt: new Date().toISOString().slice(0, 10),
-        signatureStyle: "Formal",
-        acceptedTerms: true
-      },
-      history: [...contract.history, `Aceite da CONTRATADA registrado em ${todayBr()}`],
+      ...signingContract,
+      contractorSignature: { ...signature, acceptedTerms: true },
+      history: [...signingContract.history, `Assinatura da CONTRATADA registrada em ${todayBr()} (${signature.mode})`],
       updatedAt: new Date().toISOString()
     };
     setContracts((current) => current.map((item) => item.id === next.id ? next : item));
     setSelectedId(next.id);
+    setSigningContract(null);
   }
 
   function updateStored(next: Contract) {
@@ -443,7 +445,10 @@ export default function ContratosPage() {
           signedAt: result.clientSignature.signedAt || result.signedAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
           signatureDataUrl: result.clientSignature.signatureDataUrl || "",
           signatureStyle: result.clientSignature.signatureStyle || "Clássica",
-          acceptedTerms: true
+          acceptedTerms: true,
+          brushStyle: result.clientSignature.brushStyle,
+          inkColor: result.clientSignature.inkColor,
+          initials: result.clientSignature.initials
         } : contract.clientSignature,
         history: [...contract.history, `${result.status === "signed" ? "Assinatura confirmada" : `Status ${signatureStatus}`} em ${todayBr()}`],
         updatedAt: new Date().toISOString()
@@ -517,6 +522,33 @@ export default function ContratosPage() {
           <div className="space-y-3">{filtered.map((contract) => <button key={contract.id} onClick={() => setSelectedId(contract.id)} className={`w-full rounded-[2rem] border p-5 text-left transition ${selected?.id === contract.id ? "border-volt-yellow/40 bg-volt-yellow/[.08]" : "border-white/10 bg-white/[.025] hover:border-white/20"}`}><div className="flex items-start justify-between gap-3"><div><Badge status={contract.status} /><p className="mt-3 text-lg font-black">{contract.client.name || "Cliente não informado"}</p><p className="mt-1 text-xs text-zinc-500">{contract.id} • orçamento {contract.quoteId}</p></div><p className="font-black text-volt-yellow">{currency(contract.totalValue)}</p></div><p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">{contract.title}</p></button>)}{!filtered.length && <div className="rounded-[2rem] border border-dashed border-white/10 p-10 text-center"><FileSignature className="mx-auto text-zinc-700" size={38} /><h2 className="mt-4 text-xl font-black">Nenhum contrato ainda</h2><p className="mt-2 text-sm text-zinc-500">Abra um orçamento assinado e clique em Gerar contrato, ou crie um contrato manual.</p></div>}</div>
           {selected ? <article className="card-premium rounded-[2rem] p-5 md:p-6"><div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row"><div><div className="flex flex-wrap gap-2"><Badge status={selected.status} /><span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-black uppercase text-zinc-500">Assinatura {selected.signatureStatus || "Pendente"}</span></div><h2 className="mt-3 text-3xl font-black">{selected.title}</h2><p className="mt-2 text-sm text-zinc-500">{selected.id} • Cliente: {selected.client.name} • Orçamento: {selected.quoteId}</p></div><p className="text-3xl font-black text-volt-yellow">{currency(selected.totalValue)}</p></div><div className="mt-5 grid gap-3 md:grid-cols-2">{[["Contratada", selected.contractor.name], ["Contratante", selected.client.name], ["Local", selected.serviceLocation], ["Prazo", selected.executionDeadline], ["Pagamento", selected.paymentTerms], ["Garantia", selected.warranty]].map(([label,value]) => <div key={label} className="rounded-2xl border border-white/10 bg-black/25 p-4"><p className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">{label}</p><p className="mt-1 font-bold leading-6">{value || "Não informado"}</p></div>)}</div><div className="mt-5 rounded-2xl border border-white/10 bg-black/25 p-4"><p className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">Objeto</p><p className="mt-2 text-sm leading-7 text-zinc-300">{selected.objectDescription}</p></div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => edit(selected)} className="btn-primary inline-flex items-center gap-2"><Pencil size={16} /> Editar</button><button onClick={() => openContractPdf(selected, selected.status === "Assinado" ? "final" : "signature")} className="btn-ghost inline-flex items-center gap-2"><FileText size={16} /> {selected.status === "Assinado" ? "PDF final" : "Prévia PDF"}</button>{!selected.contractorSignature?.acceptedTerms && <button onClick={() => signForVolt(selected)} className="btn-ghost inline-flex items-center gap-2"><FileCheck2 size={16} /> Assinar pela Volt</button>}<button onClick={() => void sendForSignature(selected)} disabled={busyId === selected.id || selected.status === "Assinado"} className="btn-ghost inline-flex items-center gap-2 disabled:opacity-40">{busyId === selected.id ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Enviar assinatura</button>{selected.signatureUrl && <><button onClick={() => window.open(makeContractSignatureWhatsAppLink(selected.client.phone, selected.signatureUrl || "", selected.id), "_blank")} className="btn-ghost inline-flex items-center gap-2"><MessageCircle size={16} /> WhatsApp</button><button onClick={async () => { await navigator.clipboard.writeText(selected.signatureUrl || ""); alert("Link copiado."); }} className="btn-ghost inline-flex items-center gap-2"><ClipboardCopy size={16} /> Copiar link</button><button onClick={() => void verifySignature(selected)} className="btn-ghost inline-flex items-center gap-2"><RefreshCcw size={16} /> Verificar</button></>}{selected.signatureToken && !["Assinado", "Cancelado"].includes(selected.status) && <button onClick={() => void cancelLink(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Cancelar link</button>}<button onClick={() => duplicate(selected)} className="btn-ghost">Duplicar</button><button onClick={() => remove(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-red-200"><Trash2 size={16} /></button></div>{validateContract(selected).warnings.length > 0 && <div className="mt-5 flex gap-3 rounded-2xl border border-orange-400/20 bg-orange-400/[.07] p-4"><AlertTriangle className="mt-0.5 shrink-0 text-orange-200" size={19} /><div><p className="font-black text-orange-100">Conferências recomendadas</p><ul className="mt-2 space-y-1 text-xs leading-5 text-zinc-400">{validateContract(selected).warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></div></div>}</article> : <div className="card-premium grid min-h-[400px] place-items-center rounded-[2rem] p-8 text-center"><div><FileSignature className="mx-auto text-zinc-700" size={42} /><p className="mt-4 font-black">Selecione ou crie um contrato</p></div></div>}
         </section>
+
+        {signingContract && (
+          <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/85 p-3 backdrop-blur-sm md:p-6">
+            <div className="mx-auto max-w-3xl rounded-[2rem] border border-white/10 bg-[#080c11] p-4 shadow-2xl md:p-6">
+              <div className="mb-4 flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[.2em] text-volt-yellow">Assinatura da contratada</p>
+                  <h2 className="mt-1 text-2xl font-black">Assinar pela Volt</h2>
+                  <p className="mt-2 text-sm leading-6 text-zinc-500">Contrato {signingContract.id} • representante {signingContract.contractor.representative}</p>
+                </div>
+                <button type="button" onClick={() => setSigningContract(null)} className="btn-ghost" aria-label="Fechar"><X size={18} /></button>
+              </div>
+              <SignatureStudio
+                key={signingContract.id}
+                initialValue={signingContract.contractorSignature?.acceptedTerms ? signingContract.contractorSignature : {
+                  signerName: signingContract.contractor.representative,
+                  mode: "Pendente",
+                  signedAt: "",
+                  signatureStyle: "Executiva"
+                }}
+                confirmLabel="Confirmar assinatura da Volt"
+                termsLabel={`Declaro que sou ${signingContract.contractor.representative} ou possuo autorização expressa para assinar este contrato em nome da ${signingContract.contractor.name}.`}
+                onConfirm={completeVoltSignature}
+              />
+            </div>
+          </div>
+        )}
 
         {editorOpen && draft && <div className="fixed inset-0 z-[100] bg-black/80 p-3 backdrop-blur-sm md:p-5"><div className="volt-scroll mx-auto h-full max-w-7xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#080c11] p-5 md:p-7"><div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row"><div><p className="text-sm font-black uppercase tracking-[.22em] text-volt-yellow">Editor contratual</p><h2 className="mt-1 text-3xl font-black">{draft.title}</h2><p className="mt-2 text-sm text-zinc-500">Preencha os dados reais e revise todas as cláusulas antes de enviar.</p></div><div className="flex flex-wrap gap-2"><button onClick={applyProfileToDraft} className="btn-ghost inline-flex items-center gap-2"><Building2 size={16} /> Aplicar dados da Volt</button><button onClick={saveDraft} className="btn-primary inline-flex items-center gap-2"><Save size={16} /> Salvar contrato</button><button onClick={() => setEditorOpen(false)} className="btn-ghost"><X size={18} /></button></div></div>
           <section className="mt-6"><p className="text-sm font-black uppercase tracking-[.2em] text-volt-yellow">Identificação</p><div className="mt-4 grid gap-3 md:grid-cols-2"><Field label="Número do contrato"><input value={draft.id} onChange={(event) => update("id", event.target.value)} className={inputClass} /></Field><Field label="Orçamento vinculado"><input value={draft.quoteId} onChange={(event) => update("quoteId", event.target.value)} className={inputClass} /></Field><Field label="Título" full><input value={draft.title} onChange={(event) => update("title", event.target.value)} className={inputClass} /></Field><Field label="Local da execução" full><input value={draft.serviceLocation} onChange={(event) => update("serviceLocation", event.target.value)} className={inputClass} /></Field><Field label="Objeto detalhado" full><textarea value={draft.objectDescription} onChange={(event) => update("objectDescription", event.target.value)} rows={5} className={inputClass} /></Field></div></section>
