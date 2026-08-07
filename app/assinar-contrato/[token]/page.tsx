@@ -1,14 +1,13 @@
 "use client";
 
+import { SignatureStudio } from "@/components/signatures/signature-studio";
 import type { Contract, ContractSignature } from "@/types/contracts";
+import type { SignatureData } from "@/types/signatures";
 import { openContractPdf } from "@/utils/contractPdfVolt";
-import { CheckCircle2, Download, FileSignature, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Download, FileSignature, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-
-type SignatureMode = "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
-type SignatureStyle = "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
+import { useEffect, useState } from "react";
 
 type SignatureRecord = {
   id: string;
@@ -23,14 +22,6 @@ type SignatureRecord = {
   signedAt?: string;
   expiresAt?: string;
 };
-
-const signatureStyles: Array<{ value: SignatureStyle; className: string }> = [
-  { value: "Clássica", className: "font-serif text-4xl italic" },
-  { value: "Elegante", className: "font-serif text-5xl italic tracking-wide" },
-  { value: "Moderna", className: "font-sans text-3xl font-light uppercase tracking-[.25em]" },
-  { value: "Rubrica rápida", className: "font-serif text-4xl italic -skew-x-6" },
-  { value: "Formal", className: "font-serif text-3xl font-bold tracking-wide" }
-];
 
 function currency(value: number) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -49,18 +40,11 @@ function TextBlock({ value }: { value: string }) {
 export default function AssinarContratoPage() {
   const params = useParams();
   const token = String(params?.token || "");
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawing = useRef(false);
   const [record, setRecord] = useState<SignatureRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const [signerName, setSignerName] = useState("");
-  const [mode, setMode] = useState<SignatureMode>("Assinatura livre");
-  const [signatureStyle, setSignatureStyle] = useState<SignatureStyle>("Clássica");
-  const [signatureDataUrl, setSignatureDataUrl] = useState("");
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -71,7 +55,6 @@ export default function AssinarContratoPage() {
         if (!response.ok) throw new Error(data.error || "Não foi possível carregar o contrato.");
         if (data.quoteSnapshot?.documentType !== "contract") throw new Error("Este link não pertence a um contrato.");
         setRecord(data);
-        setSignerName(data.clientSignature?.signerName || data.clientName || data.quoteSnapshot?.client?.representative || data.quoteSnapshot?.client?.name || "");
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Erro inesperado.");
       } finally {
@@ -81,93 +64,42 @@ export default function AssinarContratoPage() {
     if (token) void load();
   }, [token]);
 
-  function prepareCanvas() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const width = Math.max(rect.width, 280);
-    const height = 180;
-    if (canvas.width !== width * 2 || canvas.height !== height * 2) {
-      canvas.width = width * 2;
-      canvas.height = height * 2;
-      const context = canvas.getContext("2d");
-      if (context) {
-        context.scale(2, 2);
-        context.lineWidth = 2.6;
-        context.lineCap = "round";
-        context.lineJoin = "round";
-        context.strokeStyle = "#ffffff";
-      }
-    }
-  }
-
-  function point(event: React.PointerEvent<HTMLCanvasElement>) {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    return { x: event.clientX - Number(rect?.left || 0), y: event.clientY - Number(rect?.top || 0) };
-  }
-
-  function startDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
-    setMode("Assinatura livre");
-    prepareCanvas();
-    drawing.current = true;
-    const context = canvasRef.current?.getContext("2d");
-    if (!context) return;
-    const current = point(event);
-    context.beginPath();
-    context.moveTo(current.x, current.y);
-  }
-
-  function draw(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) return;
-    const context = canvasRef.current?.getContext("2d");
-    if (!context) return;
-    const current = point(event);
-    context.lineTo(current.x, current.y);
-    context.stroke();
-  }
-
-  function stopDrawing() {
-    drawing.current = false;
-    if (canvasRef.current) setSignatureDataUrl(canvasRef.current.toDataURL("image/png"));
-  }
-
-  function clearSignature() {
-    const canvas = canvasRef.current;
-    canvas?.getContext("2d")?.clearRect(0, 0, Number(canvas?.width || 0), Number(canvas?.height || 0));
-    setSignatureDataUrl("");
-  }
-
-  async function submitSignature() {
+  async function submitSignature(signature: SignatureData) {
     try {
-      if (!signerName.trim()) throw new Error("Digite o nome completo do assinante.");
-      if (!acceptedTerms) throw new Error("Confirme a leitura integral e o aceite do contrato.");
-      if (mode === "Assinatura livre" && !signatureDataUrl) throw new Error("Assine no campo ou escolha outra modalidade de assinatura.");
       setSaving(true);
       setError("");
       const response = await fetch(`/api/signature/${encodeURIComponent(token)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signerName, signatureMode: mode, signatureStyle, signatureDataUrl, acceptedTerms: true })
+        body: JSON.stringify({
+          signerName: signature.signerName,
+          signatureMode: signature.mode,
+          signatureStyle: signature.signatureStyle,
+          signatureDataUrl: signature.signatureDataUrl,
+          acceptedTerms: signature.acceptedTerms,
+          brushStyle: signature.brushStyle,
+          inkColor: signature.inkColor,
+          initials: signature.initials
+        })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível registrar a assinatura.");
-      const savedSignature: ContractSignature = {
-        signerName: signerName.trim(),
-        mode,
-        signedAt: new Date().toISOString().slice(0, 10),
-        signatureDataUrl,
-        signatureStyle,
-        acceptedTerms: true
-      };
-      setRecord((current) => current ? { ...current, status: "signed", signedAt: new Date().toISOString(), clientSignature: savedSignature } : current);
+      const savedSignature: ContractSignature = { ...signature, acceptedTerms: true };
+      setRecord((current) => current ? {
+        ...current,
+        status: "signed",
+        signedAt: new Date().toISOString(),
+        clientSignature: savedSignature
+      } : current);
       setSuccess(true);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Erro inesperado.");
+      const message = submitError instanceof Error ? submitError.message : "Erro inesperado.";
+      setError(message);
+      throw new Error(message);
     } finally {
       setSaving(false);
     }
   }
-
   function downloadPdf() {
     if (!record) return;
     const signed = record.status === "signed" || success;
@@ -186,7 +118,6 @@ export default function AssinarContratoPage() {
 
   const contract = record.quoteSnapshot;
   const isSigned = record.status === "signed" || success;
-  const activeStyle = signatureStyles.find((item) => item.value === signatureStyle) ?? signatureStyles[0];
   const clauses: Array<[string, string]> = [
     ["Obrigações da contratada", contract.clauses.contractorObligations], ["Obrigações do contratante", contract.clauses.clientObligations],
     ["Materiais", contract.clauses.materialsResponsibility], ["Exclusões", contract.clauses.exclusions],
@@ -223,7 +154,33 @@ export default function AssinarContratoPage() {
 
           <aside className="space-y-5 xl:sticky xl:top-24 xl:self-start">
             <section className="rounded-[2rem] border border-volt-yellow/25 bg-volt-yellow/10 p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-zinc-500">Valor contratado</p><p className="mt-2 text-3xl font-black text-volt-yellow">{currency(contract.totalValue)}</p><button type="button" onClick={downloadPdf} className="btn-ghost mt-4 inline-flex w-full items-center justify-center gap-2"><Download size={17} /> {isSigned ? "Gerar cópia final em PDF" : "Baixar contrato para leitura"}</button></section>
-            {!isSigned && <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5"><div className="flex gap-3"><FileSignature className="shrink-0 text-volt-yellow" size={24} /><div><p className="text-sm font-black uppercase tracking-[.18em] text-volt-yellow">Assinatura eletrônica</p><h2 className="mt-1 text-2xl font-black">Assinar contrato</h2></div></div><div className="mt-5"><label className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">Nome completo</label><input value={signerName} onChange={(event) => setSignerName(event.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm font-bold outline-none focus:border-volt-yellow/40" /></div><div className="mt-4 grid gap-2"><button type="button" onClick={() => setMode("Assinatura livre")} className={`rounded-2xl border px-4 py-3 text-sm font-black ${mode === "Assinatura livre" ? "border-volt-yellow bg-volt-yellow text-black" : "border-white/10 text-zinc-300"}`}>Assinar com o dedo</button><button type="button" onClick={() => { setMode("Nome digitado + aceite"); setSignatureDataUrl(""); }} className={`rounded-2xl border px-4 py-3 text-sm font-black ${mode === "Nome digitado + aceite" ? "border-volt-yellow bg-volt-yellow text-black" : "border-white/10 text-zinc-300"}`}>Nome digitado + aceite</button></div>{mode === "Assinatura livre" && <div className="mt-4 overflow-hidden rounded-2xl border border-dashed border-volt-yellow/30 bg-[#050505]"><canvas ref={canvasRef} onPointerDown={startDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerLeave={stopDrawing} className="h-48 w-full touch-none cursor-crosshair" /><button type="button" onClick={clearSignature} className="w-full border-t border-white/10 px-4 py-3 text-sm font-black text-red-200">Limpar assinatura</button></div>}<div className="mt-4"><p className="mb-2 text-xs font-black uppercase tracking-[.14em] text-zinc-600">Ou escolha uma rubrica</p><div className="grid grid-cols-2 gap-2">{signatureStyles.map((style) => <button key={style.value} type="button" onClick={() => { setMode("Rubrica predefinida"); setSignatureStyle(style.value); setSignatureDataUrl(""); }} className={`rounded-xl border px-3 py-2 text-xs font-black ${mode === "Rubrica predefinida" && signatureStyle === style.value ? "border-volt-yellow bg-volt-yellow text-black" : "border-white/10 text-zinc-400"}`}>{style.value}</button>)}</div></div>{mode === "Rubrica predefinida" && <div className="mt-4 grid h-36 place-items-center rounded-2xl border border-dashed border-volt-yellow/30 bg-black/30 p-3 text-center"><div><p className={`${activeStyle.className} text-white`}>{signerName || "Digite seu nome"}</p><p className="mt-2 text-xs text-zinc-500">{signatureStyle}</p></div></div>}<label className="mt-5 flex items-start gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm leading-6 text-zinc-300"><input type="checkbox" checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-volt-yellow" /><span>Li integralmente o contrato, tive oportunidade de esclarecer dúvidas, concordo com suas condições e aceito o uso desta assinatura eletrônica.</span></label>{error && <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}<button type="button" onClick={() => void submitSignature()} disabled={saving} className="btn-primary mt-5 inline-flex w-full items-center justify-center gap-2 disabled:opacity-50">{saving ? <><Loader2 className="animate-spin" size={17} /> Registrando...</> : <><FileSignature size={17} /> Assinar contrato</>}</button><div className="mt-4 flex gap-3 rounded-2xl border border-blue-400/20 bg-blue-400/[.07] p-3"><ShieldCheck className="mt-0.5 shrink-0 text-blue-300" size={18} /><p className="text-xs leading-5 text-zinc-400">O sistema registra data, hora e evidências técnicas do aceite. Guarde sua cópia em PDF.</p></div></section>}
+            {!isSigned && (
+              <section>
+                <div className="mb-3 rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                  <div className="flex gap-3">
+                    <FileSignature className="shrink-0 text-volt-yellow" size={24} />
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-[.18em] text-volt-yellow">Assinatura eletrônica</p>
+                      <h2 className="mt-1 text-2xl font-black">Assinar contrato</h2>
+                      <p className="mt-2 text-xs leading-5 text-zinc-500">Escolha uma das cinco formas profissionais de assinatura.</p>
+                    </div>
+                  </div>
+                </div>
+                <SignatureStudio
+                  key={token}
+                  initialValue={{
+                    signerName: record.clientSignature?.signerName || record.clientName || contract.client.representative || contract.client.name,
+                    mode: "Pendente",
+                    signedAt: ""
+                  }}
+                  saving={saving}
+                  externalError={error}
+                  confirmLabel="Assinar contrato"
+                  termsLabel="Li integralmente o contrato, tive oportunidade de esclarecer dúvidas, concordo com suas condições e aceito o uso desta assinatura eletrônica."
+                  onConfirm={submitSignature}
+                />
+              </section>
+            )}
           </aside>
         </div>
       </div>
