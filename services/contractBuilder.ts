@@ -118,6 +118,7 @@ export function createContractFromQuote(source: QuoteContractSource, profile: Co
   return {
     documentType: "contract",
     schemaVersion: 1,
+    documentVersion: 1,
     id: `CONT-${String(Date.now()).slice(-6)}`,
     quoteId: source.id,
     title: `Contrato de prestação de serviços — ${source.title}`,
@@ -231,6 +232,7 @@ export function normalizeContract(value: unknown): Contract | null {
   return {
     ...blank,
     ...source,
+    documentVersion: Number(source.documentVersion || 1),
     contractor: { ...blank.contractor, ...(source.contractor ?? {}) },
     client: { ...blank.client, ...(source.client ?? {}) },
     clauses: { ...defaultContractClauses, ...(source.clauses ?? {}) },
