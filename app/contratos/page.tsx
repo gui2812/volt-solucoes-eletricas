@@ -1,6 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { ContractProfessionalPanel } from "@/components/contracts/contract-professional-panel";
 import { SignatureStudio } from "@/components/signatures/signature-studio";
 import {
   CONTRACT_COMPANY_PROFILE_KEY,
@@ -11,6 +12,10 @@ import {
   normalizeContract,
   validateContract
 } from "@/services/contractBuilder";
+import {
+  calculateContractDocumentHash,
+  getContractCanonicalContent
+} from "@/services/contractProfessional";
 import type {
   Contract,
   ContractCompanyProfile,
@@ -26,7 +31,7 @@ import {
   createRemoteContractSignatureLink,
   makeContractSignatureWhatsAppLink
 } from "@/utils/assinaturaRemota";
-import { openContractPdf } from "@/utils/contractPdfVolt";
+import { openContractPdf, openContractSignatureCertificate } from "@/utils/contractPdfVolt";
 import {
   AlertTriangle,
   Building2,
@@ -108,19 +113,7 @@ function loadCompanyProfile() {
 }
 
 function contractContentKey(contract: Contract) {
-  const snapshot: Record<string, unknown> = { ...contract };
-  [
-    "updatedAt",
-    "status",
-    "history",
-    "contractorSignature",
-    "clientSignature",
-    "signatureToken",
-    "signatureUrl",
-    "signatureStatus",
-    "signedAt"
-  ].forEach((key) => delete snapshot[key]);
-  return JSON.stringify(snapshot);
+  return getContractCanonicalContent(contract);
 }
 
 export default function ContratosPage() {
@@ -240,6 +233,9 @@ export default function ContratosPage() {
     if (!draft) return;
     const stored = editingId ? contracts.find((item) => item.id === editingId) : undefined;
     const contentChanged = Boolean(stored && contractContentKey(stored) !== contractContentKey(draft));
+    const nextVersion = stored && contentChanged
+      ? Number(stored.documentVersion || 1) + 1
+      : Number(draft.documentVersion || 1);
     const hadAcceptance = Boolean(
       stored?.contractorSignature?.acceptedTerms ||
       stored?.clientSignature?.acceptedTerms ||
@@ -267,7 +263,8 @@ export default function ContratosPage() {
       signatureToken: undefined,
       signatureUrl: undefined,
       signatureStatus: "Pendente",
-      signedAt: undefined
+      signedAt: undefined,
+      documentHash: undefined
     } : draft;
     const validation = validateContract(unsignedDraft);
     const nextStatus: ContractStatus = validation.errors.length
@@ -277,11 +274,14 @@ export default function ContratosPage() {
         : unsignedDraft.status;
     const next: Contract = {
       ...unsignedDraft,
+      documentVersion: nextVersion,
+      documentHash: contentChanged ? undefined : unsignedDraft.documentHash,
       status: nextStatus,
       updatedAt: new Date().toISOString(),
       history: [
         ...unsignedDraft.history,
         ...(invalidated ? [`Aceites anteriores invalidados após alteração do conteúdo em ${todayBr()}`] : []),
+        ...(contentChanged ? [`Versão ${nextVersion} criada em ${todayBr()}`] : []),
         `Contrato salvo em ${todayBr()}`
       ]
     };
@@ -336,13 +336,26 @@ export default function ContratosPage() {
     setSigningContract(contract);
   }
 
-  function completeVoltSignature(signature: SignatureData) {
+  async function completeVoltSignature(signature: SignatureData) {
     if (!signingContract) return;
+    const signedAtIso = new Date().toISOString();
+    const documentHash = await calculateContractDocumentHash(signingContract);
     const next: Contract = {
       ...signingContract,
-      contractorSignature: { ...signature, acceptedTerms: true },
-      history: [...signingContract.history, `Assinatura da CONTRATADA registrada em ${todayBr()} (${signature.mode})`],
-      updatedAt: new Date().toISOString()
+      documentHash,
+      status: signingContract.status === "Rascunho" ? "Pronto para envio" : signingContract.status,
+      contractorSignature: {
+        ...signature,
+        acceptedTerms: true,
+        evidence: {
+          signedAtIso,
+          source: "Painel interno",
+          userAgent: navigator.userAgent,
+          documentHash
+        }
+      },
+      history: [...signingContract.history, `Assinatura da CONTRATADA registrada em ${todayBr()} (${signature.mode}) — versão ${signingContract.documentVersion || 1}`],
+      updatedAt: signedAtIso
     };
     setContracts((current) => current.map((item) => item.id === next.id ? next : item));
     setSelectedId(next.id);
@@ -375,7 +388,21 @@ export default function ContratosPage() {
     }
     try {
       setBusyId(contract.id);
-      const snapshot = { ...contract, status: "Pronto para envio" as ContractStatus };
+      const documentHash = contract.documentHash || await calculateContractDocumentHash(contract);
+      const securedContract: Contract = {
+        ...contract,
+        documentHash,
+        contractorSignature: contract.contractorSignature ? {
+          ...contract.contractorSignature,
+          evidence: {
+            signedAtIso: contract.contractorSignature.evidence?.signedAtIso || new Date().toISOString(),
+            source: "Painel interno",
+            userAgent: contract.contractorSignature.evidence?.userAgent || navigator.userAgent,
+            documentHash
+          }
+        } : contract.contractorSignature
+      };
+      const snapshot = { ...securedContract, status: "Pronto para envio" as ContractStatus };
       const result = await createRemoteContractSignatureLink(snapshot);
       try { await navigator.clipboard.writeText(result.signingUrl); } catch {}
       let emailSent = false;
@@ -404,12 +431,12 @@ export default function ContratosPage() {
         }
       }
       const next: Contract = {
-        ...contract,
+        ...securedContract,
         status: "Enviado",
         signatureToken: result.token,
         signatureUrl: result.signingUrl,
         signatureStatus: "Enviada",
-        history: [...contract.history, `Contrato enviado para assinatura em ${todayBr()}${emailSent ? " por WhatsApp e e-mail" : ""}`],
+        history: [...securedContract.history, `Contrato versão ${securedContract.documentVersion || 1} enviado para assinatura em ${todayBr()}${emailSent ? " por WhatsApp e e-mail" : ""}`],
         updatedAt: new Date().toISOString()
       };
       updateStored(next);
@@ -431,6 +458,10 @@ export default function ContratosPage() {
         alert("Ainda não existe assinatura remota para este contrato.");
         return;
       }
+      const remoteDocumentHash = result.clientSignature?.evidence?.documentHash;
+      if (result.status === "signed" && contract.documentHash && remoteDocumentHash && contract.documentHash !== remoteDocumentHash) {
+        throw new Error("A assinatura recebida pertence a outra versão do conteúdo. Cancele o fluxo e gere um novo link para o contrato atual.");
+      }
       const signatureStatus = result.status === "signed" ? "Assinada" : result.status === "expired" ? "Expirada" : result.status === "cancelled" ? "Cancelada" : "Enviada";
       const next: Contract = {
         ...contract,
@@ -448,9 +479,19 @@ export default function ContratosPage() {
           acceptedTerms: true,
           brushStyle: result.clientSignature.brushStyle,
           inkColor: result.clientSignature.inkColor,
-          initials: result.clientSignature.initials
+          initials: result.clientSignature.initials,
+          evidence: result.clientSignature.evidence ? {
+            ...result.clientSignature.evidence,
+            verifiedAt: new Date().toISOString()
+          } : {
+            signedAtIso: result.signedAt || new Date().toISOString(),
+            source: "Link público",
+            documentHash: contract.documentHash,
+            tokenReference: token.slice(-12),
+            verifiedAt: new Date().toISOString()
+          }
         } : contract.clientSignature,
-        history: [...contract.history, `${result.status === "signed" ? "Assinatura confirmada" : `Status ${signatureStatus}`} em ${todayBr()}`],
+        history: [...contract.history, `${result.status === "signed" ? `Assinatura do cliente confirmada para a versão ${contract.documentVersion || 1}` : `Status ${signatureStatus}`} em ${todayBr()}`],
         updatedAt: new Date().toISOString()
       };
       updateStored(next);
@@ -484,6 +525,8 @@ export default function ContratosPage() {
       ...structuredClone(contract),
       id: `CONT-${String(Date.now()).slice(-6)}`,
       title: `${contract.title} — cópia`,
+      documentVersion: 1,
+      documentHash: undefined,
       status: "Rascunho",
       createdAt: new Date().toISOString().slice(0, 10),
       updatedAt: new Date().toISOString(),
@@ -491,6 +534,7 @@ export default function ContratosPage() {
       signatureUrl: undefined,
       signatureStatus: "Pendente",
       signedAt: undefined,
+      contractorSignature: { signerName: contract.contractor.representative || contract.contractor.name, mode: "Pendente", signedAt: "", signatureStyle: "Executiva", acceptedTerms: false },
       clientSignature: { signerName: contract.client.representative || contract.client.name, mode: "Pendente", signedAt: "", acceptedTerms: false },
       history: [`Duplicado do contrato ${contract.id}`]
     };
@@ -520,7 +564,30 @@ export default function ContratosPage() {
 
         <section className="grid gap-5 xl:grid-cols-[.82fr_1.18fr]">
           <div className="space-y-3">{filtered.map((contract) => <button key={contract.id} onClick={() => setSelectedId(contract.id)} className={`w-full rounded-[2rem] border p-5 text-left transition ${selected?.id === contract.id ? "border-volt-yellow/40 bg-volt-yellow/[.08]" : "border-white/10 bg-white/[.025] hover:border-white/20"}`}><div className="flex items-start justify-between gap-3"><div><Badge status={contract.status} /><p className="mt-3 text-lg font-black">{contract.client.name || "Cliente não informado"}</p><p className="mt-1 text-xs text-zinc-500">{contract.id} • orçamento {contract.quoteId}</p></div><p className="font-black text-volt-yellow">{currency(contract.totalValue)}</p></div><p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">{contract.title}</p></button>)}{!filtered.length && <div className="rounded-[2rem] border border-dashed border-white/10 p-10 text-center"><FileSignature className="mx-auto text-zinc-700" size={38} /><h2 className="mt-4 text-xl font-black">Nenhum contrato ainda</h2><p className="mt-2 text-sm text-zinc-500">Abra um orçamento assinado e clique em Gerar contrato, ou crie um contrato manual.</p></div>}</div>
-          {selected ? <article className="card-premium rounded-[2rem] p-5 md:p-6"><div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 md:flex-row"><div><div className="flex flex-wrap gap-2"><Badge status={selected.status} /><span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-black uppercase text-zinc-500">Assinatura {selected.signatureStatus || "Pendente"}</span></div><h2 className="mt-3 text-3xl font-black">{selected.title}</h2><p className="mt-2 text-sm text-zinc-500">{selected.id} • Cliente: {selected.client.name} • Orçamento: {selected.quoteId}</p></div><p className="text-3xl font-black text-volt-yellow">{currency(selected.totalValue)}</p></div><div className="mt-5 grid gap-3 md:grid-cols-2">{[["Contratada", selected.contractor.name], ["Contratante", selected.client.name], ["Local", selected.serviceLocation], ["Prazo", selected.executionDeadline], ["Pagamento", selected.paymentTerms], ["Garantia", selected.warranty]].map(([label,value]) => <div key={label} className="rounded-2xl border border-white/10 bg-black/25 p-4"><p className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">{label}</p><p className="mt-1 font-bold leading-6">{value || "Não informado"}</p></div>)}</div><div className="mt-5 rounded-2xl border border-white/10 bg-black/25 p-4"><p className="text-xs font-black uppercase tracking-[.14em] text-zinc-600">Objeto</p><p className="mt-2 text-sm leading-7 text-zinc-300">{selected.objectDescription}</p></div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => edit(selected)} className="btn-primary inline-flex items-center gap-2"><Pencil size={16} /> Editar</button><button onClick={() => openContractPdf(selected, selected.status === "Assinado" ? "final" : "signature")} className="btn-ghost inline-flex items-center gap-2"><FileText size={16} /> {selected.status === "Assinado" ? "PDF final" : "Prévia PDF"}</button>{!selected.contractorSignature?.acceptedTerms && <button onClick={() => signForVolt(selected)} className="btn-ghost inline-flex items-center gap-2"><FileCheck2 size={16} /> Assinar pela Volt</button>}<button onClick={() => void sendForSignature(selected)} disabled={busyId === selected.id || selected.status === "Assinado"} className="btn-ghost inline-flex items-center gap-2 disabled:opacity-40">{busyId === selected.id ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Enviar assinatura</button>{selected.signatureUrl && <><button onClick={() => window.open(makeContractSignatureWhatsAppLink(selected.client.phone, selected.signatureUrl || "", selected.id), "_blank")} className="btn-ghost inline-flex items-center gap-2"><MessageCircle size={16} /> WhatsApp</button><button onClick={async () => { await navigator.clipboard.writeText(selected.signatureUrl || ""); alert("Link copiado."); }} className="btn-ghost inline-flex items-center gap-2"><ClipboardCopy size={16} /> Copiar link</button><button onClick={() => void verifySignature(selected)} className="btn-ghost inline-flex items-center gap-2"><RefreshCcw size={16} /> Verificar</button></>}{selected.signatureToken && !["Assinado", "Cancelado"].includes(selected.status) && <button onClick={() => void cancelLink(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200">Cancelar link</button>}<button onClick={() => duplicate(selected)} className="btn-ghost">Duplicar</button><button onClick={() => remove(selected)} className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-red-200"><Trash2 size={16} /></button></div>{validateContract(selected).warnings.length > 0 && <div className="mt-5 flex gap-3 rounded-2xl border border-orange-400/20 bg-orange-400/[.07] p-4"><AlertTriangle className="mt-0.5 shrink-0 text-orange-200" size={19} /><div><p className="font-black text-orange-100">Conferências recomendadas</p><ul className="mt-2 space-y-1 text-xs leading-5 text-zinc-400">{validateContract(selected).warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul></div></div>}</article> : <div className="card-premium grid min-h-[400px] place-items-center rounded-[2rem] p-8 text-center"><div><FileSignature className="mx-auto text-zinc-700" size={42} /><p className="mt-4 font-black">Selecione ou crie um contrato</p></div></div>}
+          {selected ? (
+            <ContractProfessionalPanel
+              contract={selected}
+              busy={busyId === selected.id}
+              onEdit={() => edit(selected)}
+              onPdf={() => openContractPdf(selected, selected.status === "Assinado" ? "final" : "signature")}
+              onCertificate={() => openContractSignatureCertificate(selected)}
+              onSignVolt={() => signForVolt(selected)}
+              onSend={() => void sendForSignature(selected)}
+              onWhatsApp={() => window.open(makeContractSignatureWhatsAppLink(selected.client.phone, selected.signatureUrl || "", selected.id), "_blank")}
+              onCopyLink={async () => {
+                await navigator.clipboard.writeText(selected.signatureUrl || "");
+                alert("Link copiado.");
+              }}
+              onVerify={() => void verifySignature(selected)}
+              onCancel={() => void cancelLink(selected)}
+              onDuplicate={() => duplicate(selected)}
+              onDelete={() => remove(selected)}
+            />
+          ) : (
+            <div className="card-premium grid min-h-[400px] place-items-center rounded-[2rem] p-8 text-center">
+              <div><FileSignature className="mx-auto text-zinc-700" size={42} /><p className="mt-4 font-black">Selecione ou crie um contrato</p></div>
+            </div>
+          )}
         </section>
 
         {signingContract && (
