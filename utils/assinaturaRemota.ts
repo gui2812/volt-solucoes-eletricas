@@ -1,4 +1,4 @@
-import type { SignatureBrush, SignatureInk, SignatureMode, SignatureStyle } from "@/types/signatures";
+import type { SignatureBrush, SignatureEvidence, SignatureInk, SignatureMode, SignatureStyle } from "@/types/signatures";
 
 export type RemoteSignatureQuoteItem = {
   kind?: string;
@@ -76,6 +76,7 @@ export type RemoteSignatureCheckResult = {
     brushStyle?: SignatureBrush;
     inkColor?: SignatureInk;
     initials?: string;
+    evidence?: SignatureEvidence;
   };
 };
 
