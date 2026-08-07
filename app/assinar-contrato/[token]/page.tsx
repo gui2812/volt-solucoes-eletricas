@@ -1,10 +1,11 @@
 "use client";
 
 import { SignatureStudio } from "@/components/signatures/signature-studio";
+import { shortContractHash } from "@/services/contractProfessional";
 import type { Contract, ContractSignature } from "@/types/contracts";
 import type { SignatureData } from "@/types/signatures";
 import { openContractPdf } from "@/utils/contractPdfVolt";
-import { CheckCircle2, Download, FileSignature, Loader2 } from "lucide-react";
+import { CheckCircle2, Download, FileSignature, Fingerprint, Loader2, ShieldCheck } from "lucide-react";
 import Image from "next/image";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -84,7 +85,17 @@ export default function AssinarContratoPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível registrar a assinatura.");
-      const savedSignature: ContractSignature = { ...signature, acceptedTerms: true };
+      const savedSignature: ContractSignature = data.record?.client_signature || {
+        ...signature,
+        acceptedTerms: true,
+        evidence: {
+          signedAtIso: new Date().toISOString(),
+          source: "Link público",
+          userAgent: navigator.userAgent,
+          documentHash: record?.quoteSnapshot.documentHash,
+          tokenReference: token.slice(-12)
+        }
+      };
       setRecord((current) => current ? {
         ...current,
         status: "signed",
@@ -153,6 +164,13 @@ export default function AssinarContratoPage() {
           </div>
 
           <aside className="space-y-5 xl:sticky xl:top-24 xl:self-start">
+            <section className="rounded-[2rem] border border-white/10 bg-white/[.035] p-5">
+              <div className="flex items-center gap-3"><ShieldCheck className="text-volt-yellow" size={23} /><div><p className="text-sm font-black uppercase tracking-[.18em] text-volt-yellow">Resumo para conferência</p><p className="mt-0.5 text-xs text-zinc-500">Confira os pontos principais antes de assinar.</p></div></div>
+              <div className="mt-4 space-y-2 text-sm">
+                {[["Versão do documento", String(contract.documentVersion || 1)], ["Contratante", contract.client.name], ["Local", contract.serviceLocation], ["Itens no escopo", String(contract.scopeItems.length)], ["Materiais vinculados", String(contract.materials.length)], ["Assinatura da Volt", contract.contractorSignature?.acceptedTerms ? "Confirmada" : "Pendente"]].map(([label, value]) => <div key={label} className="flex justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2.5"><span className="text-zinc-500">{label}</span><strong className="max-w-[60%] text-right text-zinc-200">{value || "Não informado"}</strong></div>)}
+              </div>
+              <div className="mt-3 flex gap-3 rounded-xl border border-blue-400/20 bg-blue-400/[.06] p-3"><Fingerprint className="mt-0.5 shrink-0 text-blue-300" size={17} /><div className="min-w-0"><p className="text-[10px] font-black uppercase text-blue-200">Identificação do conteúdo</p><p className="mt-1 break-all font-mono text-[10px] leading-4 text-zinc-500">{shortContractHash(contract.documentHash)}</p></div></div>
+            </section>
             <section className="rounded-[2rem] border border-volt-yellow/25 bg-volt-yellow/10 p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-zinc-500">Valor contratado</p><p className="mt-2 text-3xl font-black text-volt-yellow">{currency(contract.totalValue)}</p><button type="button" onClick={downloadPdf} className="btn-ghost mt-4 inline-flex w-full items-center justify-center gap-2"><Download size={17} /> {isSigned ? "Gerar cópia final em PDF" : "Baixar contrato para leitura"}</button></section>
             {!isSigned && (
               <section>
