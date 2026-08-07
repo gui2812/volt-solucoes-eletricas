@@ -260,6 +260,7 @@ export async function POST(
     const forwardedFor = request.headers.get("x-forwarded-for");
     const ip = forwardedFor?.split(",")[0]?.trim() || "";
     const userAgent = request.headers.get("user-agent") || "";
+    const documentHash = String(current.quote_snapshot?.documentHash || "");
 
     const signature = {
       signerName: payload.signerName.trim(),
@@ -270,7 +271,15 @@ export async function POST(
       acceptedTerms: true,
       brushStyle: payload.brushStyle || "Caneta assinatura",
       inkColor: payload.inkColor || "Preta",
-      initials: String(payload.initials || "").slice(0, 4)
+      initials: String(payload.initials || "").slice(0, 4),
+      evidence: {
+        signedAtIso: now,
+        source: "Link público",
+        ipAddress: ip,
+        userAgent,
+        documentHash,
+        tokenReference: params.token.slice(-12)
+      }
     };
 
     const updatePayload = {
