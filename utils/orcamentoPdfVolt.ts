@@ -1,3 +1,5 @@
+import type { SignatureMode, SignatureStyle } from "@/types/signatures";
+
 export type OrcamentoPdfItem = {
   description: string;
   quantity: number;
@@ -17,10 +19,10 @@ export type OrcamentoPdfMaterial = {
 
 export type OrcamentoPdfSignature = {
   signerName?: string;
-  mode?: "Pendente" | "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
+  mode?: SignatureMode;
   signedAt?: string;
   signatureDataUrl?: string;
-  signatureStyle?: "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
+  signatureStyle?: SignatureStyle;
 };
 
 export type OrcamentoPdfData = {
@@ -1113,6 +1115,12 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
       margin-top: 4mm;
     }
 
+    .signature-visual:not(.pending) {
+      background: #fff;
+      border-radius: 3mm;
+      padding: 2mm;
+    }
+
     .signature-visual img {
       max-width: 100%;
       max-height: 21mm;
@@ -1121,7 +1129,7 @@ export function generateOrcamentoPdfHtml(data: OrcamentoPdfData) {
 
     .signature-script {
       line-height: 1;
-      color: #fff;
+      color: #111827;
       transform: rotate(-2deg);
     }
 
