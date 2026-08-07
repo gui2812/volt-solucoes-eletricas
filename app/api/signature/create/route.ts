@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CreateSignaturePayload = {
+  documentType?: "quote" | "contract";
   quoteId: string;
   quoteSnapshot: Record<string, unknown>;
   clientName?: string;
@@ -133,7 +134,10 @@ export async function POST(request: Request) {
     }
 
     const origin = new URL(request.url).origin;
-    const signingUrl = `${origin}/assinar/${token}`;
+    const documentType = body.documentType === "contract" || body.quoteSnapshot?.documentType === "contract"
+      ? "contract"
+      : "quote";
+    const signingUrl = `${origin}/${documentType === "contract" ? "assinar-contrato" : "assinar"}/${token}`;
 
     return NextResponse.json({
       ok: true,
