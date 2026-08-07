@@ -1,12 +1,24 @@
 import { NextResponse } from "next/server";
+import type { SignatureBrush, SignatureInk, SignatureMode, SignatureStyle } from "@/types/signatures";
 
 type SignaturePayload = {
   signerName: string;
-  signatureMode: "Assinatura livre" | "Rubrica predefinida" | "Nome digitado + aceite";
-  signatureStyle?: "Clássica" | "Elegante" | "Moderna" | "Rubrica rápida" | "Formal";
+  signatureMode: Exclude<SignatureMode, "Pendente">;
+  signatureStyle?: SignatureStyle;
   signatureDataUrl?: string;
   acceptedTerms: boolean;
+  brushStyle?: SignatureBrush;
+  inkColor?: SignatureInk;
+  initials?: string;
 };
+
+const allowedModes: Array<SignaturePayload["signatureMode"]> = [
+  "Assinatura livre",
+  "Rubrica predefinida",
+  "Rubrica por iniciais",
+  "Imagem enviada",
+  "Nome digitado + aceite"
+];
 
 function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL;
@@ -188,6 +200,35 @@ export async function POST(
       );
     }
 
+    if (!allowedModes.includes(payload.signatureMode)) {
+      return NextResponse.json(
+        { error: "Modalidade de assinatura inválida." },
+        { status: 400 }
+      );
+    }
+
+    const signatureDataUrl = String(payload.signatureDataUrl || "");
+    if (signatureDataUrl && !/^data:image\/(?:png|jpe?g|webp);base64,/i.test(signatureDataUrl)) {
+      return NextResponse.json(
+        { error: "O arquivo da assinatura não é uma imagem válida." },
+        { status: 400 }
+      );
+    }
+
+    if (signatureDataUrl.length > 4_500_000) {
+      return NextResponse.json(
+        { error: "A imagem da assinatura ficou muito grande. Envie uma imagem menor." },
+        { status: 413 }
+      );
+    }
+
+    if (payload.signatureMode === "Assinatura livre" && !signatureDataUrl) {
+      return NextResponse.json(
+        { error: "Faça a assinatura no campo indicado antes de continuar." },
+        { status: 400 }
+      );
+    }
+
     const current = await getRecord(params.token);
 
     if (!current) {
@@ -225,8 +266,11 @@ export async function POST(
       mode: payload.signatureMode,
       signatureStyle: payload.signatureStyle || "Clássica",
       signedAt: now.slice(0, 10),
-      signatureDataUrl: payload.signatureDataUrl || "",
-      acceptedTerms: true
+      signatureDataUrl,
+      acceptedTerms: true,
+      brushStyle: payload.brushStyle || "Caneta assinatura",
+      inkColor: payload.inkColor || "Preta",
+      initials: String(payload.initials || "").slice(0, 4)
     };
 
     const updatePayload = {
