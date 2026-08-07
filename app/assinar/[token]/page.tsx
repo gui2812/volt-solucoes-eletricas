@@ -14,6 +14,7 @@ type QuoteItem = {
 };
 
 type QuoteSnapshot = {
+  documentType?: "quote" | "contract";
   id?: string;
   title?: string;
   client?: string;
@@ -105,6 +106,11 @@ export default function AssinarOrcamentoPage() {
 
         if (!response.ok) {
           throw new Error(data.error || "Não foi possível carregar o orçamento.");
+        }
+
+        if (data.quoteSnapshot?.documentType === "contract") {
+          window.location.replace(`/assinar-contrato/${encodeURIComponent(token)}`);
+          return;
         }
 
         setRecord(data);
