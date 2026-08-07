@@ -13,11 +13,11 @@ function getSupabaseConfig() {
 
 export async function GET(
   request: Request,
-  { params }: { params: { quoteId: string } }
+  { params }: { params: { quoteld: string } }
 ) {
   try {
     const { url, key } = getSupabaseConfig();
-    const quoteId = decodeURIComponent(params.quoteId);
+    const quoteId = decodeURIComponent(params.quoteld);
 
     const response = await fetch(
       `${url}/rest/v1/quote_signature_links?quote_id=eq.${encodeURIComponent(quoteId)}&select=*&order=created_at.desc&limit=1`,
@@ -50,12 +50,15 @@ export async function GET(
     const status = expired && record.status === "pending" ? "expired" : record.status;
 
     const origin = new URL(request.url).origin;
+    const signingPath = record.quote_snapshot?.documentType === "contract"
+      ? "assinar-contrato"
+      : "assinar";
 
     return NextResponse.json({
       found: true,
       status,
       token: record.token,
-      signingUrl: `${origin}/assinar/${record.token}`,
+      signingUrl: `${origin}/${signingPath}/${record.token}`,
       signedAt: record.signed_at,
       expiresAt: record.expires_at,
       clientSignature: record.client_signature
