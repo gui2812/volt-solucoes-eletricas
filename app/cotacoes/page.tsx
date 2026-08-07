@@ -2,6 +2,12 @@
 
 import { AppShell } from "@/components/layout/app-shell";
 import { AiEstimatorPanel } from "@/components/cotacoes/ai-estimator-panel";
+import {
+  CONTRACT_COMPANY_PROFILE_KEY,
+  CONTRACT_IMPORT_KEY,
+  createContractFromQuote,
+  defaultCompanyProfile
+} from "@/services/contractBuilder";
 import { openOrcamentoPdf } from "@/utils/orcamentoPdfVolt";
 import { checkRemoteSignatureByToken, checkRemoteSignatureStatus, createRemoteSignatureLink, makeSignatureWhatsAppLink } from "@/utils/assinaturaRemota";
 import type { EstimatorResult } from "@/types/orcamentista";
@@ -12,6 +18,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Download,
+  FileSignature,
   FileText,
   MessageCircle,
   Package,
@@ -1216,6 +1223,44 @@ export default function CotacoesPage() {
     }
   }
 
+  function generateContractFromQuote(quote: Quote) {
+    if (getSignatureStatus(quote) !== "Assinada") {
+      alert("O orçamento precisa estar assinado pelo cliente antes de gerar o contrato.");
+      return;
+    }
+
+    let companyProfile = { ...defaultCompanyProfile };
+
+    try {
+      const savedProfile = localStorage.getItem(CONTRACT_COMPANY_PROFILE_KEY);
+      if (savedProfile) companyProfile = { ...companyProfile, ...JSON.parse(savedProfile) };
+    } catch {
+      // Os dados jurídicos poderão ser completados no editor do contrato.
+    }
+
+    const contract = createContractFromQuote({
+      id: quote.id,
+      client: quote.client,
+      contact: quote.contact,
+      phone: quote.phone,
+      email: quote.email,
+      address: quote.address,
+      title: quote.title,
+      serviceType: quote.serviceType,
+      createdAt: quote.createdAt,
+      responsible: quote.responsible,
+      payment: quote.payment,
+      warranty: quote.warranty,
+      deadline: quote.deadline,
+      notes: quote.notes,
+      items: quote.items,
+      materials: quote.materials
+    }, companyProfile);
+
+    localStorage.setItem(CONTRACT_IMPORT_KEY, JSON.stringify(contract));
+    window.location.href = "/contratos?origem=orcamento-assinado";
+  }
+
   function convertQuoteToOs(id: string) {
     const quoteToConvert = quotes.find((item) => item.id === id);
 
@@ -1785,6 +1830,9 @@ export default function CotacoesPage() {
                 <div className="flex flex-wrap gap-2">
                   <a href={quoteWhatsAppLink(selected)} target="_blank" rel="noreferrer" className="btn-primary inline-flex items-center gap-2"><MessageCircle size={17} /> WhatsApp</a>
                   <button onClick={() => openQuotePdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF final</button>
+                  {getSignatureStatus(selected) === "Assinada" && (
+                    <button onClick={() => generateContractFromQuote(selected)} className="btn-primary inline-flex items-center gap-2"><FileSignature size={17} /> Gerar contrato</button>
+                  )}
                   <button onClick={() => openApprovalPdf(selected)} className="btn-ghost inline-flex items-center gap-2"><FileText size={17} /> PDF para assinatura</button>
                   <button onClick={() => sendToRemoteSignature(selected)} className="btn-ghost inline-flex items-center gap-2"><Send size={17} /> Enviar assinatura</button>
                   {(selected.signatureUrl || selected.signatureToken) && getSignatureStatus(selected) !== "Assinada" && (
