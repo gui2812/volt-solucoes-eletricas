@@ -79,6 +79,7 @@ export const config = {
     "/agenda/:path*",
     "/ordens/:path*",
     "/cotacoes/:path*",
+    "/contratos/:path*",
     "/materiais/:path*",
     "/financeiro/:path*",
     "/relatorios/:path*",
