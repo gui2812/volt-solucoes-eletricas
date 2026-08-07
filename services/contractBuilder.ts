@@ -214,25 +214,6 @@ export function validateContract(contract: Contract) {
     [contract.warranty, "Preencha a garantia aplicável."]
   ];
   required.forEach(([value, message]) => { if (!value.trim()) errors.push(message); });
-  const clauseNames: Array<[keyof ContractClauses, string]> = [
-    ["contractorObligations", "obrigações da CONTRATADA"],
-    ["clientObligations", "obrigações do CONTRATANTE"],
-    ["materialsResponsibility", "materiais e especificações"],
-    ["exclusions", "exclusões do escopo"],
-    ["changeOrders", "alterações e aditivos"],
-    ["unforeseenConditions", "condições imprevistas"],
-    ["siteSafety", "segurança"],
-    ["testsAndAcceptance", "testes, entrega e aceite"],
-    ["warrantyTerms", "garantia"],
-    ["cancellationTerms", "rescisão"],
-    ["latePaymentTerms", "atraso de pagamento"],
-    ["privacyTerms", "privacidade"],
-    ["electronicSignatureTerms", "assinatura eletrônica"],
-    ["disputeResolution", "solução de controvérsias"]
-  ];
-  clauseNames.forEach(([key, label]) => {
-    if (!contract.clauses[key].trim()) errors.push(`Preencha a cláusula de ${label}.`);
-  });
   if (!contract.scopeItems.some((item) => item.description.trim())) errors.push("Inclua ao menos um item no escopo.");
   if (contract.totalValue <= 0) warnings.push("O valor total está zerado; confirme se o contrato realmente não possui cobrança.");
   if (!contract.contractor.representativeDocument.trim()) warnings.push("Documento do representante da CONTRATADA não informado.");
