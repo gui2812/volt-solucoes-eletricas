@@ -49,6 +49,25 @@ const links = [
 
 const groups = ["Principal", "Operação", "Gestão", "Sistema"];
 
+const biometricScopes = new Set([
+  "/dashboard",
+  "/clientes",
+  "/agenda",
+  "/ordens",
+  "/cotacoes",
+  "/contratos",
+  "/materiais",
+  "/financeiro",
+  "/relatorios",
+  "/backup",
+  "/circuitos"
+]);
+
+function currentBiometricScope(pathname: string) {
+  const firstSegment = `/${pathname.split("/").filter(Boolean)[0] || ""}`;
+  return biometricScopes.has(firstSegment) ? firstSegment : "";
+}
+
 function getGreeting() {
   const hour = new Date().getHours();
 
@@ -64,6 +83,8 @@ export function AppShell({ children }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [ready, setReady] = useState(false);
+  const [securityChecking, setSecurityChecking] = useState(false);
+  const [securityBlocked, setSecurityBlocked] = useState(false);
 
   const activePage = useMemo(() => {
     const current = links.find((item) => {
@@ -77,6 +98,66 @@ export function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     setReady(true);
     setMobileOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const scope = currentBiometricScope(pathname);
+    if (!scope) {
+      setSecurityChecking(false);
+      setSecurityBlocked(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSecurityChecking(true);
+    setSecurityBlocked(false);
+
+    async function verifyRouteAccess() {
+      try {
+        const response = await fetch(
+          `/api/security?action=access-status&scope=${encodeURIComponent(scope)}`,
+          { cache: "no-store" }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (!response.ok) {
+          if (scope === "/contratos" || scope === "/financeiro") {
+            setSecurityBlocked(true);
+            const validationUrl = `/validar-biometria?scope=${encodeURIComponent(scope)}&next=${encodeURIComponent(pathname)}&reason=security-unavailable`;
+            window.location.replace(validationUrl);
+            return;
+          }
+          setSecurityChecking(false);
+          return;
+        }
+
+        if (payload.protected === true && payload.authorized !== true) {
+          setSecurityBlocked(true);
+          const next = `${pathname}${window.location.search || ""}`;
+          const validationUrl = `/validar-biometria?scope=${encodeURIComponent(scope)}&next=${encodeURIComponent(next)}`;
+          window.location.replace(validationUrl);
+          return;
+        }
+
+        setSecurityChecking(false);
+      } catch {
+        if (cancelled) return;
+        if (scope === "/contratos" || scope === "/financeiro") {
+          setSecurityBlocked(true);
+          const validationUrl = `/validar-biometria?scope=${encodeURIComponent(scope)}&next=${encodeURIComponent(pathname)}&reason=security-unavailable`;
+          window.location.replace(validationUrl);
+          return;
+        }
+        setSecurityChecking(false);
+      }
+    }
+
+    void verifyRouteAccess();
+
+    return () => {
+      cancelled = true;
+    };
   }, [pathname]);
 
   async function logout() {
@@ -278,7 +359,24 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </header>
 
-        <div className="px-4 py-5 md:px-6 md:py-6">{children}</div>
+        <div className="px-4 py-5 md:px-6 md:py-6">
+          {securityChecking || securityBlocked ? (
+            <div className="grid min-h-[55vh] place-items-center">
+              <div className="w-full max-w-md rounded-[2rem] border border-volt-yellow/20 bg-volt-yellow/[.06] p-8 text-center shadow-2xl">
+                <div className="mx-auto grid h-16 w-16 place-items-center rounded-3xl bg-volt-yellow/10 text-volt-yellow">
+                  <Fingerprint size={30} />
+                </div>
+                <p className="mt-5 text-xs font-black uppercase tracking-[.22em] text-volt-yellow">Segurança biométrica</p>
+                <h2 className="mt-2 text-2xl font-black">Verificando acesso...</h2>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                  Esta área pode exigir biometria antes de liberar o conteúdo.
+                </p>
+              </div>
+            </div>
+          ) : (
+            children
+          )}
+        </div>
       </main>
     </div>
   );

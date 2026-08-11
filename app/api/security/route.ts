@@ -520,19 +520,44 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const action = url.searchParams.get("action") || "status";
 
+    if (action === "access-status") {
+      const scope = url.searchParams.get("scope") || "";
+      if (!ALLOWED_ROUTES.has(scope)) {
+        return NextResponse.json({ error: "Área biométrica inválida." }, { status: 400 });
+      }
+
+      const settings = await getSettings();
+      const isProtected = settings.protectedRoutes.includes(scope);
+      const token = readBiometricToken(request);
+      const authorized = Boolean(
+        !isProtected ||
+          (token &&
+            token.scope === scope &&
+            Date.now() - token.createdAt <= ROUTE_UNLOCK_MAX_AGE_SECONDS * 1000)
+      );
+
+      return NextResponse.json(
+        { scope, protected: isProtected, authorized },
+        { headers: { "Cache-Control": "no-store, max-age=0" } }
+      );
+    }
+
     if (action !== "status") return NextResponse.json({ error: "Ação inválida." }, { status: 400 });
 
     const [settings, credentials] = await Promise.all([getSettings(), listCredentials()]);
-    return NextResponse.json({
-      protectedRoutes: settings.protectedRoutes,
-      credentials: credentials.map(safeCredentialMeta),
-      managementAuthorized: hasManagementAuthorization(request),
-      biometricAvailable: credentials.length > 0
-    });
+    return NextResponse.json(
+      {
+        protectedRoutes: settings.protectedRoutes,
+        credentials: credentials.map(safeCredentialMeta),
+        managementAuthorized: hasManagementAuthorization(request),
+        biometricAvailable: credentials.length > 0
+      },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erro ao carregar segurança." },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   }
 }
