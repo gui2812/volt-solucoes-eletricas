@@ -12,7 +12,7 @@ import { AlertTriangle, ArrowLeft, Fingerprint, Loader2, LockKeyhole, ShieldChec
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const scopeLabels: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -37,21 +37,20 @@ function ValidationContent() {
   const [supported, setSupported] = useState(true);
   const [platformAvailable, setPlatformAvailable] = useState<boolean | null>(null);
   const [error, setError] = useState("");
+  const autoAttempted = useRef(false);
 
   const safeNext = useMemo(() => (nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/dashboard"), [nextParam]);
   const areaName = scopeLabels[scope] || "Área protegida";
 
-  useEffect(() => {
-    const webAuthnSupported = supportsWebAuthn();
-    setSupported(webAuthnSupported);
-    if (webAuthnSupported) void hasPlatformAuthenticator().then(setPlatformAvailable);
-    else setPlatformAvailable(false);
-  }, []);
-
-  async function validate() {
+  const validate = useCallback(async (automatic = false) => {
+    if (!scope || loading) return;
     setLoading(true);
     setError("");
     try {
+      if (!window.isSecureContext) {
+        throw new Error("A biometria exige acesso HTTPS seguro. Abra o sistema pelo endereço HTTPS publicado.");
+      }
+
       const optionsResponse = await fetch("/api/security?action=auth-options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,7 +60,8 @@ function ValidationContent() {
       if (!optionsResponse.ok) throw new Error(optionsPayload.error || "Não foi possível iniciar a validação.");
 
       const credential = await navigator.credentials.get({
-        publicKey: authenticationOptionsFromJSON(optionsPayload.options as AuthenticationOptionsJSON)
+        publicKey: authenticationOptionsFromJSON(optionsPayload.options as AuthenticationOptionsJSON),
+        mediation: "required"
       });
       if (!(credential instanceof PublicKeyCredential)) throw new Error("A biometria não retornou uma credencial válida.");
 
@@ -77,11 +77,32 @@ function ValidationContent() {
 
       window.location.assign(safeNext);
     } catch (validationError) {
-      setError(biometricErrorMessage(validationError));
+      if (automatic && validationError instanceof DOMException && validationError.name === "NotAllowedError") {
+        setError("O pedido automático de biometria foi cancelado ou bloqueado pelo navegador. Toque em ‘Validar biometria’ para tentar novamente.");
+      } else {
+        setError(biometricErrorMessage(validationError));
+      }
     } finally {
       setLoading(false);
     }
-  }
+  }, [loading, safeNext, scope]);
+
+  useEffect(() => {
+    const webAuthnSupported = supportsWebAuthn();
+    setSupported(webAuthnSupported);
+    if (!webAuthnSupported) {
+      setPlatformAvailable(false);
+      return;
+    }
+
+    void hasPlatformAuthenticator().then((available) => {
+      setPlatformAvailable(available);
+      if (available && !autoAttempted.current) {
+        autoAttempted.current = true;
+        window.setTimeout(() => void validate(true), 250);
+      }
+    });
+  }, [validate]);
 
   return (
     <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#050505] px-5 py-10 text-white">
@@ -131,11 +152,11 @@ function ValidationContent() {
           <button
             type="button"
             disabled={loading || !supported}
-            onClick={validate}
+            onClick={() => void validate(false)}
             className="btn-primary flex w-full items-center justify-center gap-2 py-4 text-base disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? <Loader2 className="animate-spin" size={20} /> : <Fingerprint size={20} />}
-            {loading ? "Validando..." : "Validar biometria"}
+            {loading ? "Aguardando biometria..." : "Validar biometria"}
           </button>
 
           <div className="grid gap-3 sm:grid-cols-2">
