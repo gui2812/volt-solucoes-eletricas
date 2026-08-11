@@ -14,6 +14,7 @@ import {
   ExternalLink,
   FileSignature,
   FileText,
+  Fingerprint,
   Home,
   LogOut,
   Menu,
@@ -42,7 +43,8 @@ const links = [
   { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Gestão" },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Gestão" },
   { href: "/backup", label: "Backup", icon: Database, group: "Sistema" },
-  { href: "/circuitos", label: "Central Técnica IA", icon: CircuitBoard, group: "Sistema" }
+  { href: "/circuitos", label: "Central Técnica IA", icon: CircuitBoard, group: "Sistema" },
+  { href: "/seguranca", label: "Segurança biométrica", icon: Fingerprint, group: "Sistema" }
 ];
 
 const groups = ["Principal", "Operação", "Gestão", "Sistema"];

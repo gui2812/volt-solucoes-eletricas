@@ -32,7 +32,7 @@ export async function loadBusinessDocuments<T>(type: BusinessDocumentType): Prom
 }
 
 export async function saveBusinessDocuments<T extends { id: string }>(type: BusinessDocumentType, documents: T[]) {
-  const response = await fetch("/api/business-documents", {
+  const response = await fetch(`/api/business-documents?type=${encodeURIComponent(type)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type, documents })
